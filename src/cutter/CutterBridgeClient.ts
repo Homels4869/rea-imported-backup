@@ -240,6 +240,27 @@ export interface CutterBridgeDiscovery {
     | "not_checked";
 }
 
+/**
+ * Expands a leading `~` or `~/...` to the home directory. An empty or
+ * whitespace-only `REA_CUTTER_BRIDGE_DIR` is unset.
+ */
+const resolveCutterBridgeDirectory = (
+  environment: Readonly<NodeJS.ProcessEnv>,
+  platform: NodeJS.Platform,
+): string => {
+  const configured = environment.REA_CUTTER_BRIDGE_DIR;
+  if (configured !== undefined && configured.trim().length > 0) {
+    if (configured === "~") return homedir();
+    if (configured.startsWith("~/"))
+      return join(homedir(), configured.slice(2));
+    return configured;
+  }
+  const localAppData = environment.LOCALAPPDATA;
+  return platform === "win32" && localAppData
+    ? join(localAppData, "REA", "CutterBridge")
+    : join(homedir(), ".cache", "rea", "cutter-bridge");
+};
+
 /** Discovers and communicates with REA Python bridge plugins in live Cutter processes. */
 export class CutterBridgeClient {
   readonly #directory: string;
@@ -251,8 +272,6 @@ export class CutterBridgeClient {
     environment: Readonly<NodeJS.ProcessEnv> = process.env,
     options: CutterBridgeClientOptions = {},
   ) {
-    const configured = environment.REA_CUTTER_BRIDGE_DIR;
-    const localAppData = environment.LOCALAPPDATA;
     this.#platform = options.platform ?? process.platform;
     this.#windowsPrivateReader =
       options.windowsPrivateReader ??
@@ -278,11 +297,7 @@ export class CutterBridgeClient {
                 ),
           }
         : undefined);
-    this.#directory =
-      configured ??
-      (this.#platform === "win32" && localAppData
-        ? join(localAppData, "REA", "CutterBridge")
-        : join(homedir(), ".cache", "rea", "cutter-bridge"));
+    this.#directory = resolveCutterBridgeDirectory(environment, this.#platform);
   }
 
   async listSessions(): Promise<CutterBridgeDiscovery> {

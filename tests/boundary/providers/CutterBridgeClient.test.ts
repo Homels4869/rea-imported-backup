@@ -1198,6 +1198,24 @@ describe("CutterBridgeClient: scenario group 8", () => {
     });
   });
 
+  it.each([
+    ["~", homedir()],
+    ["~/x", join(homedir(), "x")],
+    ["", join(homedir(), ".cache", "rea", "cutter-bridge")],
+    [" \t", join(homedir(), ".cache", "rea", "cutter-bridge")],
+    ["/var/tmp/rea-cutter-bridge", "/var/tmp/rea-cutter-bridge"],
+  ] as const)(
+    "resolves REA_CUTTER_BRIDGE_DIR %j",
+    async (configured, bridgeDirectory) => {
+      await expect(
+        new CutterBridgeClient(
+          { REA_CUTTER_BRIDGE_DIR: configured },
+          { platform: "linux" },
+        ).listSessions(),
+      ).resolves.toMatchObject({ bridge_directory: bridgeDirectory });
+    },
+  );
+
   it("uses the packaged Windows authority for descriptor verification and reads", async () => {
     directory = await mkdtemp(join(tmpdir(), "rea-cutter-native-reader-"));
     const sessionId = "27d3e3f1-f1e5-49ae-91ec-95af1f343a5a";
