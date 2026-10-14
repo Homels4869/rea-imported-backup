@@ -117,7 +117,47 @@ describe("CdpBrowserProvider: cancellation and session events", () => {
       },
     });
   });
+});
 
+describe("CdpBrowserProvider: source-map cancellation", () => {
+  it("reports cancellation, not a provider failure, when source-map fetching is interrupted", async () => {
+    const browser = await startFakeCdpBrowser({
+      sourceMapBody: JSON.stringify({
+        version: 3,
+        names: [],
+        sources: ["src/main.ts"],
+        sourcesContent: ["export const original = true;"],
+        mappings: "AAAA",
+      }),
+      hangOnSourceMap: true,
+    });
+    trackBrowser(browser);
+    const controller = new AbortController();
+    const pending = new CdpBrowserProvider().analyzeBundle(
+      analyzeWebBundleInputSchema.parse({
+        cdp_endpoint: browser.endpoint,
+        allowed_origins: [browser.allowedOrigin],
+        target_id: "allowed-page",
+        observation_ms: 0,
+        fetch_source_maps: true,
+      }),
+      { signal: controller.signal },
+    );
+    await waitForHttpRequest(browser, "/app.js.map");
+    controller.abort();
+    const result = await pending;
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "AnalysisCancelledError",
+        operation: "analyze_web_bundle",
+      },
+    });
+  });
+});
+
+describe("CdpBrowserProvider: session events", () => {
   it("observes user-driven reload, SPA, redirect, failure, and lifecycle events", async () => {
     const browser = await startFakeCdpBrowser({
       sessionTimeline: "same_origin",
@@ -589,4 +629,16 @@ const waitForCommand = async (
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(`Timed out waiting for fake CDP command ${method}`);
+};
+
+const waitForHttpRequest = async (
+  browser: FakeCdpBrowser,
+  pathPrefix: string,
+): Promise<void> => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (browser.httpRequests.some(({ url }) => url.startsWith(pathPrefix)))
+      return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for fake HTTP request ${pathPrefix}`);
 };

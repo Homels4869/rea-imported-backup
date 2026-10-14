@@ -86,3 +86,42 @@ it("does not publish targets when cancellation arrives during provider cleanup",
     },
   });
 });
+
+it("reports cancellation instead of targets when the caller aborts during file checks", async () => {
+  const controller = new AbortController();
+  const provider: JavaScriptRuntimeObservationPort = {
+    identity: () => ({
+      id: "test-inspector",
+      name: "Test Inspector",
+      version: "1",
+    }),
+    listTargets: async () => {
+      controller.abort();
+      return ok({
+        runtime: {
+          product: "node.js/v24.4.1",
+          protocol_version: "1.3",
+          v8_version: "13.6",
+        },
+        targets: [],
+        excluded: { unsupported_location: 0, unconnectable: 0 },
+        limitations: [],
+      });
+    },
+    observe: async () =>
+      err(new AnalysisCancelledError("observe_javascript_runtime")),
+  };
+  const result = await listJavaScriptRuntimeTargets(
+    provider,
+    { inspector_endpoint: "http://127.0.0.1:9229" },
+    { signal: controller.signal },
+  );
+
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisCancelledError",
+      operation: "list_javascript_runtime_targets",
+    },
+  });
+});

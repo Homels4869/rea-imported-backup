@@ -252,6 +252,7 @@ const serveSourceMap = (
 ): boolean => {
   if (options.sourceMapBody === undefined) return false;
   if (request.url?.startsWith("/app.js.map") === true) {
+    if (options.hangOnSourceMap === true) return true;
     if (options.sourceMapRedirect !== undefined)
       response.writeHead(302, { location: options.sourceMapRedirect }).end();
     else response.end(options.sourceMapBody);

@@ -96,6 +96,8 @@ export interface FakeOptions {
   readonly invalidBinaryWebSocketEvent?: boolean;
   readonly sourceMapBody?: string;
   readonly sourceMapRedirect?: string;
+  /** Never answer the source-map HTTP request, holding a download open. */
+  readonly hangOnSourceMap?: boolean;
   readonly sessionTimeline?:
     | "same_origin"
     | "outside_policy"
