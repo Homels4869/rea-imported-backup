@@ -27,7 +27,6 @@ import {
   GoBinaryFormatFailure,
   GoBinaryResourceFailure,
 } from "./GoBinaryImage.js";
-import { parseGoModuleBytes, parseGoModuleText } from "./GoModuleText.js";
 
 /** Bundled format reader identity; embedded compiler versions are separate observed facts. */
 export const GO_BINARY_PROVIDER_IDENTITY = {
@@ -165,24 +164,6 @@ export class GoBinaryProvider implements GoBinaryPort {
       options?.signal?.throwIfAborted();
       const image = readGoBinaryImage(snapshot.bytes);
       const info = image.build_info;
-      if (
-        info !== null &&
-        ((info.module_text !== null &&
-          Buffer.byteLength(info.module_text) > OUTPUT_BYTES) ||
-          Buffer.byteLength(info.module_bytes_base64) > OUTPUT_BYTES)
-      )
-        throw outputLimit(input.path);
-      const module =
-        info === null
-          ? null
-          : info.module_text === null
-            ? parseGoModuleBytes(
-                Buffer.from(info.module_bytes_base64, "base64").subarray(
-                  16,
-                  -16,
-                ),
-              )
-            : parseGoModuleText(info.module_text);
       const report = {
         ...image,
         artifact: {
@@ -190,7 +171,6 @@ export class GoBinaryProvider implements GoBinaryPort {
           sha256: snapshot.sha256,
           bytes: snapshot.bytes.length,
         },
-        build_info: info === null ? null : { ...info, module },
         limitations: [
           "Embedded build metadata is observed file content, not proof of compiler identity, dependency authenticity or runtime behavior.",
           "Only Go build information is inspected; function names, source mappings, type metadata and decompiled code are not recovered.",
@@ -206,7 +186,7 @@ export class GoBinaryProvider implements GoBinaryPort {
                 "No recognized Go build-info record was found in the inspected image; absent metadata does not establish that the binary is not Go.",
               ]
             : []),
-          ...(module?.complete === false
+          ...(info?.module.complete === false
             ? [
                 "Some embedded module-text records could not be parsed completely; their original lines are preserved and additional metadata remains unknown.",
               ]

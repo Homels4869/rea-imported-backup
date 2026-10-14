@@ -69,6 +69,30 @@ it("preserves the actual build-info byte guard as a resource failure", async () 
   });
 });
 
+it("parses records around a non-UTF-8 module line and retains its exact bytes", async () => {
+  const fixture = createGoBinaryFixture({
+    moduleText: "path\tapp\nbuild\t-tags=x\nbuild\tGOOS=linux\n",
+  });
+  const invalid = Buffer.from("build\t-tags=\xff", "latin1");
+  invalid.copy(fixture.bytes, fixture.moduleOffset + 16 + 9);
+  const root = await createTestTempDirectory("rea-go-module-bytes-");
+  const path = join(root, "application.elf");
+  await writeFile(path, fixture.bytes);
+  const result = await new GoBinaryProvider().inspect({ path });
+  if (!result.ok) throw result.error;
+  expect(result.value.build_info).toMatchObject({
+    module_text: null,
+    module: {
+      path: "app",
+      settings: [{ key: "GOOS", value: "linux" }],
+      unparsed_lines: [],
+      unparsed_line_bytes_base64: [invalid.toString("base64")],
+      complete: false,
+    },
+  });
+  expect(result.value.limitations.join(" ")).toContain("non-UTF8 bytes");
+});
+
 it.skipIf(process.platform === "win32")(
   "rejects a symlink without replacing its selected file identity",
   async () => {

@@ -15,6 +15,8 @@ import {
 import { readGoElfImage } from "./GoElfImage.js";
 import { readGoMachoImage } from "./GoMachoImage.js";
 import { readGoPeImage } from "./GoPeImage.js";
+import { parseGoModuleBytes, parseGoModuleText } from "./GoModuleText.js";
+import type { GoModuleMetadata } from "../domain/go/goBinary.js";
 
 export {
   GoBinaryFormatFailure,
@@ -33,7 +35,7 @@ export interface GoStringLocation {
   readonly bytes: number;
 }
 
-/** Observed compiler string and validated module body with its original framing bytes. */
+/** Observed compiler string, validated module body with its original framing bytes, and its parsed records. */
 export interface GoBuildInfo {
   readonly header_offset: number;
   readonly encoding: "inline" | "pointer";
@@ -43,6 +45,7 @@ export interface GoBuildInfo {
   readonly module_bytes_base64: string;
   readonly version_location: GoStringLocation;
   readonly module_location: GoStringLocation;
+  readonly module: GoModuleMetadata;
 }
 
 /** Native image identity and optional Go build information; absence is not a language verdict. */
@@ -160,7 +163,7 @@ export const readGoBinaryImage = (bytes: Buffer): GoBinaryImage => {
       "Go build-info compiler version is empty",
     );
   const goVersion = observedText(version.bytes);
-  let moduleText: string | null = "";
+  let moduleBody = module.bytes;
   if (module.bytes.length !== 0) {
     if (
       module.bytes.length < 33 ||
@@ -172,8 +175,9 @@ export const readGoBinaryImage = (bytes: Buffer): GoBinaryImage => {
         "malformed",
         "Go module string framing is invalid",
       );
-    moduleText = observedText(module.bytes.subarray(16, -16));
+    moduleBody = module.bytes.subarray(16, -16);
   }
+  const moduleText = observedText(moduleBody);
   return {
     format,
     architecture,
@@ -188,6 +192,10 @@ export const readGoBinaryImage = (bytes: Buffer): GoBinaryImage => {
       module_bytes_base64: module.bytes.toString("base64"),
       version_location: version.location,
       module_location: module.location,
+      module:
+        moduleText === null
+          ? parseGoModuleBytes(moduleBody)
+          : parseGoModuleText(moduleText),
     },
   };
 };
