@@ -4,7 +4,6 @@ import {
   allowedSanitizedUrl,
   isHttpUrl,
   recordValue,
-  recordsValue,
   cdpStringValue,
 } from "./CdpCaptureValues.js";
 import type { CaptureContext } from "./CdpPageCapture.js";
@@ -30,8 +29,18 @@ export const captureWorkers = async (
     limitations,
   );
   const items: WebPageInspection["workers"] = [];
-  if (result === undefined) completeness.unavailable("workers");
-  for (const target of recordsValue(recordValue(result)?.targetInfos)) {
+  const inventory = recordValue(result)?.targetInfos;
+  if (result === undefined || !Array.isArray(inventory)) {
+    // A reply without a target list cannot be told apart from no workers.
+    completeness.unavailable("workers");
+    return items;
+  }
+  for (const entry of inventory) {
+    const target = recordValue(entry);
+    if (target === undefined) {
+      completeness.exclude("workers", "invalid_protocol_value");
+      continue;
+    }
     const type = cdpStringValue(target.type) ?? "";
     const url = allowedSanitizedUrl(target.url, allowedOrigins);
     const relatedToPage =
