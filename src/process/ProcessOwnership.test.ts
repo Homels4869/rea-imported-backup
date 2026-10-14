@@ -466,6 +466,73 @@ describe("withheld process evidence during cleanup", () => {
 });
 
 describe("sampled detached process groups during cleanup", () => {
+  it("upgrades an unreadable sweep result when group validation reads a foreign token", async () => {
+    const processes = [
+      {
+        pid: 100,
+        parentPid: 1,
+        processGroupId: 100,
+        state: "S",
+        command: "capture",
+      },
+      {
+        pid: 200,
+        parentPid: 100,
+        processGroupId: 200,
+        state: "S",
+        command: "detached-child",
+      },
+    ];
+    const signalGroup = vi.fn();
+    let childTokenReads = 0;
+    const adapter: ProcessOwnershipHost = {
+      listProcesses: () => Promise.resolve(processes),
+      processIdentities: (members) =>
+        Promise.resolve(
+          new Map(
+            members.map(({ pid }) => [
+              pid,
+              { state: "readable" as const, identity: `start-${pid}` },
+            ]),
+          ),
+        ),
+      environment: () => Promise.resolve({}),
+      runTokens: (members) =>
+        Promise.resolve(
+          new Map(
+            members.map(({ pid }) => [
+              pid,
+              pid === 100
+                ? { state: "readable" as const, runId: "run-token" }
+                : ++childTokenReads <= 4
+                  ? {
+                      state: "unavailable" as const,
+                      reason: "environment_unavailable",
+                    }
+                  : { state: "readable" as const, runId: "foreign-token" },
+            ]),
+          ),
+        ),
+      signalGroup,
+    };
+
+    const result = await cleanupOwnedProcessGroup(
+      {
+        ...ownership,
+        sweepTokenOwnedProcesses: true,
+        captureBaseline: [],
+      },
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      cleaned: false,
+      reason: "process ownership token mismatch for PID(s): 200",
+      failures: [{ pid: 200, reason: "run-token-mismatch" }],
+    });
+    expect(signalGroup).not.toHaveBeenCalledWith(200, "SIGKILL");
+  });
+
   it("signals only token-authenticated sampled groups and reports an unowned sample", async () => {
     const processes = [
       {
