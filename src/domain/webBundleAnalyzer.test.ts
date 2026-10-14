@@ -8,6 +8,32 @@ import { createWebTextArtifact } from "./webContentArtifact.js";
 
 const origin = "https://app.example.test";
 
+it("retains optional WebMCP declaration sites without inferring dynamic callees", () => {
+  const result = analyzeCapturedWebBundle(
+    inspection(`
+    document.modelContext?.registerTool({ name: "optional-object" });
+    document.modelContext.registerTool?.({ name: "optional-call" });
+    document.modelContext.registerTool({ name: "plain" });
+    document.modelContext?.["registerTool"]?.({ name: "optional-computed" });
+    document.modelContext?.[registerTool]?.({ name: "dynamic" });
+    window.fetch?.("/optional-fetch");
+  `),
+  );
+  expect(
+    result.observations.webmcp_declarations.map(({ name }) => name),
+  ).toEqual(["optional-object", "optional-call", "plain", "optional-computed"]);
+  expect(
+    result.observations.webmcp_declarations.every(
+      ({ trust, location }) =>
+        trust === "page-declared-untrusted" && location.line !== null,
+    ),
+  ).toBe(true);
+  expect(result.observations.endpoints).toContainEqual(
+    expect.objectContaining({ value: "/optional-fetch" }),
+  );
+  expect(result.completeness.status).toBe("complete");
+});
+
 it.each([
   {
     kind: "recovered",
