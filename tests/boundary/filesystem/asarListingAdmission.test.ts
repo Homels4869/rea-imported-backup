@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { setImmediate } from "node:timers/promises";
+import { createPackage, listPackage } from "@electron/asar";
 import { expect, it } from "vitest";
 
 import { AsarArtifactReader } from "../../../src/artifacts/AsarArtifactReader.js";
@@ -12,6 +13,26 @@ import {
 } from "../../fixtures/asarHeader.js";
 import { inventoryArtifact } from "../../fixtures/artifactInventory.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+/** Prepend JSON whitespace to an official ASAR header while keeping member bytes. */
+const withLeadingHeaderWhitespace = (
+  archive: Buffer,
+  whitespace: string,
+): Buffer => {
+  const headerSize = archive.readUInt32LE(4);
+  const stringLength = archive.readUInt32LE(12);
+  const json = archive.subarray(16, 16 + stringLength);
+  const nextJson = Buffer.concat([Buffer.from(whitespace), json]);
+  const nextHeaderSize = 8 + Math.ceil(nextJson.length / 4) * 4;
+  const next = Buffer.alloc(archive.length - headerSize + nextHeaderSize);
+  next.writeUInt32LE(4, 0);
+  next.writeUInt32LE(nextHeaderSize, 4);
+  next.writeUInt32LE(nextHeaderSize - 4, 8);
+  next.writeUInt32LE(nextJson.length, 12);
+  nextJson.copy(next, 16);
+  archive.subarray(8 + headerSize).copy(next, 8 + nextHeaderSize);
+  return next;
+};
 
 const archiveWith = async (bytes: Buffer) => {
   const root = await createTestTempDirectory("rea-asar-listing-");
@@ -128,3 +149,31 @@ it("preserves POSIX literal backslashes and rejects Windows component separators
     await reader.close();
   }
 });
+
+it.each([" ", "\n"] as const)(
+  "keeps official ASAR member inventory when the JSON header starts with %j",
+  async (whitespace) => {
+    const root = await createTestTempDirectory("rea-asar-json-ws-");
+    const source = join(root, "source");
+    const archive = join(root, "app.asar");
+    await mkdir(source);
+    await writeFile(join(source, "main.js"), "export const answer = 42;\n");
+    await writeFile(join(source, "package.json"), '{"name":"fixture"}\n');
+    await createPackage(source, archive);
+    const rewritten = withLeadingHeaderWhitespace(
+      await readFile(archive),
+      whitespace,
+    );
+    await writeFile(archive, rewritten);
+    expect(listPackage(archive, { isPack: false }).sort()).toEqual([
+      "/main.js",
+      "/package.json",
+    ]);
+
+    const inventory = await inventoryArtifact(archive);
+    expect(inventory.manifest.root_format).toBe("asar");
+    expect(
+      inventory.occurrences.map((occurrence) => occurrence.logical_path).sort(),
+    ).toEqual([".", "main.js", "package.json"]);
+  },
+);

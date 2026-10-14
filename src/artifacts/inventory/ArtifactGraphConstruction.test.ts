@@ -5,11 +5,14 @@ import {
   classifyArtifactContent,
   createArtifactEdges,
   createOccurrence,
+  hasAsarHeader,
   indexOccurrencesByPath,
   resolveOccurrenceParents,
 } from "./ArtifactGraphConstruction.js";
 import { artifactIdForContent } from "../../domain/artifactIdentity.js";
 import type { ArtifactEntry } from "../ArtifactReader.js";
+import { asarHeaderBytes } from "../../../tests/fixtures/asarHeader.js";
+import { ARTIFACT_CLASSIFICATION_PREFIX_BYTES } from "../ArtifactHash.js";
 
 const entry = (path: string, kind: ArtifactEntry["kind"]): ArtifactEntry => ({
   path,
@@ -241,5 +244,48 @@ it("preserves path-selected inventory roles for XML content", () => {
   expect(classifyArtifactContent("state.asar", xml)).toEqual({
     kind: "resource",
     format: "file",
+  });
+});
+
+describe("ASAR header signature whitespace", () => {
+  const objectJson = '{"files":{"main.js":{"size":0,"offset":"0"}}}';
+
+  it.each([
+    ["compact", objectJson],
+    ["leading space", ` ${objectJson}`],
+    ["leading newline", `\n${objectJson}`],
+    ["leading tab", `\t${objectJson}`],
+    ["leading CR", `\r${objectJson}`],
+    ["mixed whitespace", ` \t\r\n${objectJson}`],
+  ] as const)(
+    "admits %s JSON after the pickle string length",
+    (_label, json) => {
+      const bytes = asarHeaderBytes(json);
+      expect(hasAsarHeader(bytes)).toBe(true);
+      expect(classifyArtifactContent("app.asar", bytes)).toEqual({
+        kind: "container",
+        format: "asar",
+      });
+    },
+  );
+
+  it("rejects a pickle string that never reaches an object within the prefix", () => {
+    const whitespace = " ".repeat(ARTIFACT_CLASSIFICATION_PREFIX_BYTES);
+    const bytes = asarHeaderBytes(`${whitespace}{"files":{}}`);
+    expect(
+      hasAsarHeader(bytes.subarray(0, ARTIFACT_CLASSIFICATION_PREFIX_BYTES)),
+    ).toBe(false);
+    expect(
+      classifyArtifactContent(
+        "app.asar",
+        bytes.subarray(0, ARTIFACT_CLASSIFICATION_PREFIX_BYTES),
+        bytes.length,
+      ),
+    ).toEqual({ kind: "resource", format: "file" });
+  });
+
+  it("rejects non-JSON bytes after optional whitespace", () => {
+    expect(hasAsarHeader(asarHeaderBytes(" []"))).toBe(false);
+    expect(hasAsarHeader(asarHeaderBytes("x{}"))).toBe(false);
   });
 });

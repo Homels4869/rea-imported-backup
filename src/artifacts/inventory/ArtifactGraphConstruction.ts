@@ -493,9 +493,16 @@ export const classifyArtifactContent = (
   return artifactRoleForFormat(path, format);
 };
 
+/** RFC 8259 insignificant whitespace that may precede an ASAR JSON object. */
+const isJsonWhitespace = (byte: number): boolean =>
+  byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x20;
+
 /**
- * Electron ASAR starts with a size pickle whose payload is one uint32, then
- * a header pickle whose payload begins with a JSON object.
+ * Electron ASAR starts with a size pickle whose payload is one uint32, then a
+ * header pickle whose JSON string is one object. Leading JSON whitespace is
+ * allowed; `{` must still appear within the pickle string and the examined
+ * prefix. Exhausting the available prefix while still in whitespace is not a
+ * positive signature.
  */
 export const hasAsarHeader = (prefix: Buffer): boolean => {
   if (prefix.length < 17 || prefix.readUInt32LE(0) !== 4) return false;
@@ -503,9 +510,11 @@ export const hasAsarHeader = (prefix: Buffer): boolean => {
   const payloadSize = prefix.readUInt32LE(8);
   if (headerSize < 16 || payloadSize !== headerSize - 4) return false;
   const stringLength = prefix.readUInt32LE(12);
-  return (
-    stringLength >= 2 && stringLength <= payloadSize - 4 && prefix[16] === 0x7b
-  );
+  if (stringLength < 2 || stringLength > payloadSize - 4) return false;
+  const end = Math.min(prefix.length, 16 + stringLength);
+  let offset = 16;
+  while (offset < end && isJsonWhitespace(prefix[offset]!)) offset += 1;
+  return offset < end && prefix[offset] === 0x7b;
 };
 
 const artifactRoleForFormat = (
