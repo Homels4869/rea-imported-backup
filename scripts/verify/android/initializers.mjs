@@ -46,6 +46,77 @@ export const verifyAndroidInitializers = async ({
       );
     return evidence;
   };
+  const flagCases = [
+    {
+      operation: "inspect_android_class",
+      args: [],
+      input: {},
+      check: (result) => {
+        const methods = new Map(
+          result.methods.map((method) => [method.name, method]),
+        );
+        assert.equal(methods.get("nativeCall").access_flags, 0x101);
+        assert.deepEqual(methods.get("nativeCall").access_flag_names, [
+          "public",
+          "native",
+        ]);
+        assert.equal(methods.get("missing").access_flags, 0x401);
+        assert.deepEqual(methods.get("missing").access_flag_names, [
+          "public",
+          "abstract",
+        ]);
+        assert.equal(methods.get("generated").access_flags, 0x1049);
+        assert.deepEqual(methods.get("generated").access_flag_names, [
+          "public",
+          "static",
+          "bridge",
+          "synthetic",
+        ]);
+      },
+    },
+    ...[
+      ["nativeCall", "native"],
+      ["missing", "abstract"],
+      ["generated", null],
+    ].map(([method, reason]) => ({
+      operation: "inspect_android_method",
+      args: [method],
+      input: { method_name: method },
+      check: (result) => {
+        assert.equal(result.body_unavailable_reason, reason);
+        assert.equal(
+          result.body_status,
+          reason === null ? "available" : "not_available",
+        );
+        if (reason !== null) assert.equal(result.source.text, "");
+      },
+    })),
+  ];
+  const flagEvidence = [];
+  for (const scenario of flagCases) {
+    const response = await execute(
+      process.execPath,
+      [
+        entrypoint,
+        scenario.operation.replaceAll("_", "-"),
+        apk,
+        "fixture.AccessFlags",
+        ...scenario.args,
+        "--format",
+        "json",
+      ],
+      {
+        cwd: repository,
+        env: environment,
+        timeout: 150_000,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    );
+    const evidence = parseEvidence(JSON.parse(response.stdout));
+    assert.equal(evidence.subject.digest.sha256, digest);
+    scenario.check(evidence.normalized_result);
+    flagEvidence.push(evidence);
+  }
   const cli = new Map();
   for (const scenario of cases) {
     const response = await execute(
@@ -112,6 +183,27 @@ export const verifyAndroidInitializers = async ({
         cli.get(scenario.class_name).provider,
       );
     }
+    for (const [index, scenario] of flagCases.entries()) {
+      const response = await client.callTool(
+        {
+          name: scenario.operation,
+          arguments: {
+            path: apk,
+            class_name: "fixture.AccessFlags",
+            ...scenario.input,
+          },
+        },
+        { timeout: 150_000 },
+      );
+      assert.notEqual(response.isError, true, JSON.stringify(response));
+      const evidence = parseEvidence(response.structuredContent);
+      assert.equal(evidence.subject.digest.sha256, digest);
+      scenario.check(evidence.normalized_result);
+      assert.deepEqual(
+        evidence.normalized_result,
+        flagEvidence[index].normalized_result,
+      );
+    }
     await client.ping();
   } catch (cause) {
     process.stderr.write(stderr);
@@ -125,6 +217,6 @@ export const verifyAndroidInitializers = async ({
     "Static inspection changed fixture bytes",
   );
   console.log(
-    "PASS real CLI/MCP static initializer evidence, identity, parity and unchanged APK",
+    "PASS real CLI/MCP static initializer and access-flag evidence, identity, parity and unchanged APK",
   );
 };

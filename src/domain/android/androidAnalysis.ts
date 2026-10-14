@@ -105,11 +105,36 @@ export const dexDescriptorSchema = z
     /^\((?:\[*(?:[ZBSCIJFD]|L[^;\x28\x29]+;))*\)(?:V|\[*(?:[ZBSCIJFD]|L[^;\x28\x29]+;))$/u,
   );
 
+/** Raw DEX method flags retain reserved bits as well as recognized modifiers. */
+export const androidMethodAccessFlagsSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(0xffffffff);
+export const androidMethodAccessFlagNameSchema = z.enum([
+  "public",
+  "private",
+  "protected",
+  "static",
+  "final",
+  "synchronized",
+  "bridge",
+  "varargs",
+  "native",
+  "abstract",
+  "strict",
+  "synthetic",
+  "constructor",
+  "declared_synchronized",
+]);
+
 const method = z.strictObject({
   name: z.string(),
   reported_signature: z.string(),
   overload_index: z.number().int().nonnegative(),
   is_constructor: z.boolean(),
+  access_flags: androidMethodAccessFlagsSchema,
+  access_flag_names: z.array(androidMethodAccessFlagNameSchema),
   dex_descriptor: dexDescriptorSchema,
 });
 const engine = z.strictObject({
@@ -166,6 +191,9 @@ export const androidResultSchemas = {
     overload_count: z.number().int().positive(),
     representation: z.enum(["java", "smali"]),
     body_status: z.enum(["available", "not_available"]),
+    body_unavailable_reason: z
+      .enum(["native", "abstract", "no_decompiled_body"])
+      .nullable(),
     fell_back: z.boolean(),
     markers: z.array(z.string()),
     source: textCoverage,

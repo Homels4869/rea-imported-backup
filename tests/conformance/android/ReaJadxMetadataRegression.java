@@ -50,7 +50,8 @@ public class ReaJadxMetadataRegression {
     options.outputDexFile = directory.resolve("initializers.dex").toString();
     require(Smali.assemble(options, List.of(
         Path.of(sources, "InitializationPolicy.smali").toString(),
-        Path.of(sources, "MixedInitialization.smali").toString())), "Initializer fixture assembly failed");
+        Path.of(sources, "MixedInitialization.smali").toString(),
+        Path.of(sources, "AccessFlags.smali").toString())), "Initializer fixture assembly failed");
     Path apk = directory.resolve("initializers.apk");
     try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(apk))) {
       zip.putNextEntry(new ZipEntry("classes.dex"));
@@ -175,6 +176,18 @@ public class ReaJadxMetadataRegression {
       require(body.get("mode").getAsString().equals("java") && !text.contains("{") && !text.contains(".method"),
           "Executable body was fabricated for " + name + ": " + text);
     }
+    JsonObject flagSummary = call(handle, bridge, "get_class_summary", arguments("fixture.AccessFlags"));
+    Map<String, Integer> expectedFlags = Map.of("missing", 0x401, "nativeCall", 0x101, "generated", 0x1049);
+    for (JsonElement element : flagSummary.getAsJsonArray("methods")) {
+      JsonObject item = element.getAsJsonObject();
+      String methodName = item.get("name").getAsString();
+      require(item.has("access_flags") && item.get("access_flags").getAsInt() == expectedFlags.get(methodName),
+          "Raw method access flags were lost or changed for " + methodName);
+    }
+    require(flagSummary.getAsJsonArray("methods").size() == expectedFlags.size(), "Flag fixture method inventory changed");
+    call(handle, bridge, "get_method_body", methodArguments("fixture.AccessFlags", "generated"));
+    require(flagSummary.equals(call(handle, bridge, "get_class_summary", arguments("fixture.AccessFlags"))),
+        "Frozen method flags changed after decompilation");
     JsonObject ordinary = call(handle, bridge, "get_method_body", methodArguments(classNames[1], "touch"));
     require(ordinary.get("mode").getAsString().equals("java") && ordinary.get("body").getAsString().contains("COUNT"),
         "Ordinary executable method no longer produces Java");
