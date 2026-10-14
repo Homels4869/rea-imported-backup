@@ -324,3 +324,15 @@ describe("graphs transferred to their sealing steps", () => {
     ).toEqual(issuesFrom(() => createJavaScriptApplicationGraph(stale)));
   });
 });
+
+describe("Electron boundary summary compatibility", () => {
+  it("reads results produced before protocol registrations were counted", () => {
+    const current = example();
+    const { protocol_registrations: _count, ...summary } = current.summary;
+    const parsed = javascriptApplicationAnalysisResultSchema.parse({
+      ...current,
+      summary,
+    });
+    expect(parsed.summary).not.toHaveProperty("protocol_registrations");
+  });
+});
