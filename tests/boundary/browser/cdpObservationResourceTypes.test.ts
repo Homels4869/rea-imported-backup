@@ -24,6 +24,7 @@ it.each(["Fetch", "Script"] as const)(
     );
     if (!result.ok) throw result.error;
     expect(result.value.window.end_reason).toBe("window_elapsed");
+    expect(result.value.target.final_url).toBe(result.value.target.initial_url);
     expect(result.value.timeline.some(({ type }) => type === "redirect")).toBe(
       false,
     );
