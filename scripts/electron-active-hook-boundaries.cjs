@@ -337,7 +337,7 @@ const createElectronActiveBoundaryPatches = ({
 
   const patchShell = (shell) => {
     if (shell === null || shell === undefined) return;
-    for (const method of ["openExternal", "openPath"]) {
+    for (const method of ["openExternal", "openPath", "trashItem"]) {
       const original = shell[method];
       if (typeof original !== "function") continue;
       shell[method] = function blockedShellCall(...args) {

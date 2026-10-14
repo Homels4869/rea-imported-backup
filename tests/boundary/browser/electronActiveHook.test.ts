@@ -56,7 +56,11 @@ const utilityProcess = {
     return child;
   },
 };
-const shell = { openExternal: () => Promise.resolve(), openPath: () => Promise.resolve() };
+const shell = {
+  openExternal: () => Promise.resolve(),
+  openPath: () => Promise.resolve(),
+  trashItem: () => Promise.resolve(),
+};
 const createSession = () => {
   const value = new EventEmitter();
   value.setPermissionRequestHandler = () => undefined;
@@ -104,6 +108,7 @@ const defaultPopupDecision = window.webContents.windowOpenHandler({ url: "https:
 window.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
 const popupDecision = window.webContents.windowOpenHandler({ url: "https://popup.invalid" });
 electron.shell.openExternal("https://example.invalid").catch(() => undefined);
+electron.shell.trashItem("/path/to/host/file").catch(() => undefined);
 electron.app.relaunch();
 electron.contextBridge.exposeInMainWorld("api", { value: true });
 window.webContents.loadURL("https://example.invalid").catch(() => undefined);
@@ -186,6 +191,11 @@ it("retains active hook evidence within its event-retention budget", async () =>
       expect.objectContaining({ kind: "window-lifecycle", event: "created" }),
       expect.objectContaining({ kind: "preload", event: "configured" }),
       expect.objectContaining({ kind: "shell-attempt", phase: "blocked" }),
+      expect.objectContaining({
+        kind: "shell-attempt",
+        event: "trashItem",
+        phase: "blocked",
+      }),
       expect.objectContaining({ kind: "updater", phase: "blocked" }),
       expect.objectContaining({ kind: "native-addon" }),
       expect.objectContaining({ kind: "popup-attempt", phase: "blocked" }),
@@ -217,6 +227,69 @@ it("retains active hook evidence within its event-retention budget", async () =>
       }),
     ]),
   );
+});
+
+it("blocks shell.trashItem and records blocked shell attempts", async () => {
+  const { createRequire } = await import("node:module");
+  const electronHookBoundaries = createRequire(import.meta.url)(
+    "../../../scripts/electron-active-hook-boundaries.cjs",
+  ) as {
+    readonly createElectronActiveBoundaryPatches: (context: {
+      readonly identity: (target: unknown, prefix: string) => string;
+      readonly patchEmitter: () => void;
+      readonly processType: () => string;
+      readonly recordIpc: () => null;
+      readonly recordRuntime: (
+        kind: string,
+        event: string,
+        phase: string,
+        details: Record<string, unknown>,
+      ) => void;
+      readonly shape: (value: unknown) => unknown;
+    }) => {
+      readonly patchShell: (shell: Record<string, unknown>) => void;
+    };
+  };
+
+  const recorded: {
+    readonly kind: string;
+    readonly event: string;
+    readonly phase: string;
+    readonly details: Record<string, unknown>;
+  }[] = [];
+
+  const patches = electronHookBoundaries.createElectronActiveBoundaryPatches({
+    identity: () => "id",
+    patchEmitter: () => {},
+    processType: () => "browser",
+    recordIpc: () => null,
+    recordRuntime: (kind, event, phase, details) => {
+      recorded.push({ kind, event, phase, details });
+    },
+    shape: (value) => value,
+  });
+
+  const fakeShell = {
+    openExternal: (_url: string) => Promise.resolve(),
+    openPath: (_path: string) => Promise.resolve(),
+    trashItem: (_path: string) => Promise.resolve(),
+  };
+
+  patches.patchShell(fakeShell);
+
+  await expect(fakeShell.trashItem("/tmp/foo")).rejects.toThrow(
+    "External shell effects are blocked",
+  );
+
+  expect(recorded).toContainEqual({
+    kind: "shell-attempt",
+    event: "trashItem",
+    phase: "blocked",
+    details: {
+      argument_shape_values: ["/tmp/foo"],
+      error: true,
+    },
+  });
 });
 
 it("classifies a dropped browser preload as preload configuration at capture", async () => {
