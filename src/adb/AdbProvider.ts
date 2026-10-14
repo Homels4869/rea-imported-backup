@@ -1763,9 +1763,20 @@ export class AdbProvider {
       input.device_path,
       selection.binary,
       adbArguments(input.serial, ["shell", "sha256sum", input.device_path]),
-      { timeoutMs: SHELL_TIMEOUT_MS, maxOutputBytes: 1024 },
+      {
+        timeoutMs: SHELL_TIMEOUT_MS,
+        // sha256sum echoes the path, escaping special characters, so a long
+        // path must not exhaust the budget for the digest line.
+        maxOutputBytes: 1024 + 2 * Buffer.byteLength(input.device_path),
+      },
       signal,
     );
+    // An answer too large to read is not an absent sha256sum command.
+    if (
+      !deviceDigest.ok &&
+      deviceDigest.error instanceof AnalysisResourceConstraintError
+    )
+      return deviceDigest;
     if (deviceDigest.ok) {
       const digestMatch = /^([a-f0-9]{64})\s/u.exec(deviceDigest.value.stdout);
       if (digestMatch !== null && digestMatch[1] !== digest.sha256)
