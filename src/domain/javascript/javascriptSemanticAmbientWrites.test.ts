@@ -26,6 +26,36 @@ it("keeps wrapper module aliases distinct from global-object module properties",
 
 it.each([
   {
+    name: "a deferred instance field alias after global reassignment",
+    setup: `let target = {}; class Patch { value = (target.URL = replacement); }
+target = globalThis; new Patch();`,
+    specifier: null,
+  },
+  {
+    name: "a deferred private field alias after global reassignment",
+    setup: `let target = {}; class Patch { #value = (target.URL = replacement); }
+target = globalThis; new Patch();`,
+    specifier: null,
+  },
+  {
+    name: "an instance field alias already assigned to the global object",
+    setup: `let target = globalThis; class Patch { value = (target.URL = replacement); }
+new Patch();`,
+    specifier: null,
+  },
+  {
+    name: "a static field before a later global reassignment",
+    setup: `let target = {}; class Patch { static value = (target.URL = replacement); }
+target = globalThis; new Patch();`,
+    specifier: "./worker.js",
+  },
+  {
+    name: "a computed field key before a later global reassignment",
+    setup: `let target = {}; class Patch { [target.URL = replacement] = 1; }
+target = globalThis; new Patch();`,
+    specifier: "./worker.js",
+  },
+  {
     name: "reconverging projections with different alias-cycle histories",
     setup: `var x; const a = { foo: x, bar: globalThis }; x = a.bar;
 const y = flag ? x : a.foo; y.URL = replacement;`,

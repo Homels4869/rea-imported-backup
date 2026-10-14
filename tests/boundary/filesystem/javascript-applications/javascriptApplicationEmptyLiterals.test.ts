@@ -57,6 +57,24 @@ it("retains empty literal evidence across the application boundary surfaces", as
     "const { contextBridge } = require('electron'); contextBridge.exposeInMainWorld('', {});",
   ];
   const output = await analyzeSource(sources.join("\n"));
+  const endpointFacts = output.graph.nodes
+    .filter(({ kind }) => kind === "endpoint")
+    .flatMap(({ observations }) => observations);
+  expect(endpointFacts).toContainEqual(
+    expect.objectContaining({
+      properties: {
+        endpoint_kind: "network",
+        value: "",
+        mechanism: "call:app.get",
+        interpretation: "candidate",
+      },
+    }),
+  );
+  const knownEndpoint = endpointFacts.find(
+    ({ properties }) => properties.mechanism === "call:fetch",
+  );
+  expect(knownEndpoint).toBeDefined();
+  expect(knownEndpoint?.properties).not.toHaveProperty("interpretation");
   expect(output.graph.nodes).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: "endpoint" }),

@@ -3,31 +3,52 @@ import { expect, it } from "vitest";
 import { analyzeJavaScriptStaticSource } from "../../domain/javascript/javascriptStaticAnalysis.js";
 import { javaScriptWorkerStaticAnalysisSchema } from "./JavaScriptAnalysisWorkerSchemas.js";
 
-it("retains candidate endpoint interpretation across the worker boundary", () => {
-  const facts = analyzeJavaScriptStaticSource(`
-    client.get("settingKey");
-    fetch("/api");
-  `);
-  expect(facts.endpoints).toEqual([
-    expect.objectContaining({
-      value: "settingKey",
-      interpretation: "candidate",
-    }),
-    expect.objectContaining({ value: "/api" }),
-  ]);
-  expect(facts.endpoints[1]).not.toHaveProperty("interpretation");
-  const serialized = JSON.parse(JSON.stringify(facts)) as unknown;
-  expect(javaScriptWorkerStaticAnalysisSchema.parse(serialized)).toEqual(facts);
-  expect(
-    javaScriptWorkerStaticAnalysisSchema.safeParse({
-      ...facts,
-      endpoints: facts.endpoints.map((endpoint) => ({
-        ...endpoint,
-        interpretation: "confirmed",
-      })),
-    }).success,
-  ).toBe(false);
-});
+it.each([
+  {
+    description: "nonempty endpoint values",
+    source: 'client.get("settingKey"); fetch("/api");',
+    candidateValue: "settingKey",
+    candidateMechanism: "call:client.get",
+    knownValue: "/api",
+  },
+  {
+    description: "empty endpoint values",
+    source: "app.get(''); fetch('');",
+    candidateValue: "",
+    candidateMechanism: "call:app.get",
+    knownValue: "",
+  },
+])(
+  "retains candidate interpretation for $description across the worker boundary",
+  ({ source, candidateValue, candidateMechanism, knownValue }) => {
+    const facts = analyzeJavaScriptStaticSource(source);
+    expect(facts.endpoints).toEqual([
+      expect.objectContaining({
+        kind: "network",
+        value: candidateValue,
+        mechanism: candidateMechanism,
+        interpretation: "candidate",
+      }),
+      expect.objectContaining({ value: knownValue }),
+    ]);
+    expect(facts.endpoints[1]).not.toHaveProperty("interpretation");
+    const serialized = JSON.parse(JSON.stringify(facts)) as unknown;
+    expect(javaScriptWorkerStaticAnalysisSchema.parse(serialized)).toEqual(
+      facts,
+    );
+    for (const interpretation of ["verified", "confirmed"]) {
+      expect(
+        javaScriptWorkerStaticAnalysisSchema.safeParse({
+          ...facts,
+          endpoints: facts.endpoints.map((endpoint) => ({
+            ...endpoint,
+            interpretation,
+          })),
+        }).success,
+      ).toBe(false);
+    }
+  },
+);
 
 it("versions fingerprints through the worker schema and rejects v1", () => {
   const facts =

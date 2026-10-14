@@ -12,6 +12,18 @@ interface StatementPosition {
   readonly declaratorIndex: number;
 }
 
+/** Instance field values run at construction; static values and keys do not. */
+const isDeferredClassFieldValue = (
+  parent: t.Node | undefined,
+  child: t.Node | undefined,
+): boolean =>
+  child !== undefined &&
+  (t.isClassProperty(parent) ||
+    t.isClassPrivateProperty(parent) ||
+    t.isClassAccessorProperty(parent)) &&
+  !parent.static &&
+  parent.value === child;
+
 /**
  * Initializer positions depend only on a node and its parent map, which one
  * analysis builds once and never changes. Different mutations and initializers
@@ -85,14 +97,7 @@ export const semanticTopLevelEffectFollowsCapture = (
     let child: t.Node | undefined;
     while (node !== undefined) {
       if (t.isFunction(node) || t.isLoop(node)) return null;
-      if (
-        (t.isClassProperty(node) ||
-          t.isClassPrivateProperty(node) ||
-          t.isClassAccessorProperty(node)) &&
-        !node.static &&
-        node.value === child
-      )
-        return null;
+      if (isDeferredClassFieldValue(node, child)) return null;
       if (t.isVariableDeclarator(node)) declarator = node;
       if (selected === null && t.isStatement(node))
         selected = statementPosition(node, parents, declarator);
@@ -231,6 +236,7 @@ const computeDirectMutationPosition = (
     if (
       parent === undefined ||
       t.isFunction(parent) ||
+      isDeferredClassFieldValue(parent, current) ||
       (t.isLogicalExpression(parent) && parent.right === current) ||
       (t.isConditionalExpression(parent) && parent.test !== current)
     )
@@ -375,7 +381,8 @@ export const semanticReadInitializers = (
     parent;
     parent = parents.get(current)
   ) {
-    if (t.isLoop(parent)) return binding;
+    if (t.isLoop(parent) || isDeferredClassFieldValue(parent, current))
+      return binding;
     if (t.isFunction(parent)) break;
     if (position === null) {
       if (t.isVariableDeclarator(parent)) {
