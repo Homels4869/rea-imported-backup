@@ -1,5 +1,3 @@
-import { resolve } from "node:path";
-
 import {
   describeEvidenceBundleFailure,
   describeValidationFailure,
@@ -21,7 +19,11 @@ import {
   bufferedJsonParts,
   canonicalJsonParts,
 } from "../domain/jsonSerialization.js";
-import { readJsonFile, writeTextParts } from "./JsonFiles.js";
+import {
+  absoluteJsonFilePath,
+  readJsonFile,
+  writeTextParts,
+} from "./JsonFiles.js";
 import { RegularFileCleanupFailure } from "./RegularFileRead.js";
 import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 
@@ -83,7 +85,7 @@ const readBundle = async (
     if (failure.kind === "single-record")
       return err(
         new EvidenceFileError("read", "wrong-kind", {
-          path: resolve(path),
+          path: absoluteJsonFilePath(path),
           cause,
           userMessage: failure.message,
         }),

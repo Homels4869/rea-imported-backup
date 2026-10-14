@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -20,6 +20,32 @@ describe.each([
   { mode: "native", paddingBytes: 0 },
   { mode: "streamed", paddingBytes: 9 * 1024 * 1024 },
 ])("analysis snapshot input ($mode)", ({ paddingBytes }) => {
+  it.skipIf(process.platform === "win32")(
+    "reads snapshot members from the selected symlink-parent path",
+    async () => {
+      const root = await createTestTempDirectory("rea-snapshot-selected-path-");
+      await mkdir(join(root, "actual", "child"), { recursive: true });
+      await symlink("actual/child", join(root, "alias"));
+      const snapshot = {
+        target: snapshotTarget(ANALYSIS_SNAPSHOT_TARGET),
+        binding: snapshotBinding(ANALYSIS_SNAPSHOT_PROFILE),
+        entries: [],
+        workflow_entries: [],
+        evidence_bundle: createEvidenceBundle([]),
+      };
+      await writeFile(
+        join(root, "actual", "snapshot.json"),
+        `${" ".repeat(paddingBytes)}${JSON.stringify(snapshot)}`,
+      );
+      await writeFile(join(root, "snapshot.json"), "unselected snapshot");
+      const loaded = await readAnalysisSnapshot(
+        `${root}/alias/../snapshot.json`,
+      );
+      if (!loaded.ok) throw loaded.error;
+      expect(loaded.value).toEqual(snapshot);
+    },
+  );
+
   it.each(["[]", "null", "5", '"x"', "true"])(
     "classifies a readable %s root as invalid content, not an I/O failure",
     async (document) => {

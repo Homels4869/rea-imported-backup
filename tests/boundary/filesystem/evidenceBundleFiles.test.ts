@@ -217,6 +217,51 @@ const writeParts = (
   );
 
 describe("evidence bundle publication", () => {
+  it.skipIf(process.platform === "win32")(
+    "does not erase missing components or directory requirements from selected paths",
+    async () => {
+      const root = await createTestTempDirectory(
+        "rea-evidence-path-requirements-",
+      );
+      const destination = join(root, "bundle.json");
+      const encoded = serializeEvidenceBundle(bundle());
+      await writeFile(destination, encoded);
+      await writeFile(join(root, "file"), "ordinary file");
+      await mkdir(join(root, "directory"));
+      for (const path of [
+        `${root}/missing/../bundle.json`,
+        `${root}/file/../bundle.json`,
+      ]) {
+        expect(await readEvidenceBundle(path)).toMatchObject({
+          ok: false,
+          error: { reason: "missing", path },
+        });
+        expect(await writeBundle(bundle(false), path, true)).toMatchObject({
+          ok: false,
+          error: { reason: "missing", path },
+        });
+      }
+      for (const path of [
+        `${destination}/`,
+        `${destination}/.`,
+        `${root}/new.json/`,
+        `${root}/directory/.`,
+        `${root}/directory/..`,
+      ]) {
+        expect(await writeBundle(bundle(false), path, true)).toMatchObject({
+          ok: false,
+          error: { reason: "not-file", path },
+        });
+      }
+      expect(await readFile(destination, "utf8")).toBe(encoded);
+      expect((await readdir(root)).sort()).toEqual([
+        "bundle.json",
+        "directory",
+        "file",
+      ]);
+    },
+  );
+
   it.each([false, true])(
     "never publishes a partial streamed file (overwrite: %s)",
     async (overwrite) => {

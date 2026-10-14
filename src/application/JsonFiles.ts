@@ -7,7 +7,7 @@ import {
   rename,
   type FileHandle,
 } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 
 import {
   EvidenceFileError,
@@ -38,6 +38,15 @@ export interface TextWriteCancellation {
 
 type TextWriteResult<Failure = EvidenceFileError | AnalysisCancelledError> =
   Result<{ readonly path: string; readonly bytes: number }, Failure>;
+
+/** Anchor a JSON file selection without removing filesystem traversal requirements. */
+export const absoluteJsonFilePath = (path: string): string => {
+  // Win32 resolves dot components before directory links, including drive-relative paths.
+  if (sep === "\\") return resolve(path);
+  if (isAbsolute(path)) return path;
+  const base = process.cwd();
+  return `${base}${base.endsWith(sep) ? "" : sep}${path}`;
+};
 
 /** Read JSON data from a regular file at the caller-supplied path. */
 export const readJsonFile = async (
@@ -94,7 +103,7 @@ const readJsonFileInput = async <Value>(
 ): Promise<
   Result<Value, EvidenceFileError | AnalysisResourceConstraintError>
 > => {
-  const requestedPath = resolve(path);
+  const requestedPath = absoluteJsonFilePath(path);
   try {
     const decoded = await read(requestedPath);
     if (!decoded.ok) {
@@ -173,7 +182,7 @@ export function writeTextParts(
       return err(
         new EvidenceFileError("write", "io", {
           cause,
-          path: resolve(path),
+          path: absoluteJsonFilePath(path),
           ...(cleanup === undefined ? {} : { cleanup }),
         }),
       );
@@ -187,11 +196,19 @@ const writeTextPartsOwned = async (
   resources: ArtifactResourceScope,
   cancellation?: TextWriteCancellation,
 ): Promise<TextWriteResult> => {
-  const requestedPath = resolve(path);
+  const requestedPath = absoluteJsonFilePath(path);
   try {
     assertWriteActive(cancellation);
+    const name = basename(requestedPath);
+    // Splitting a POSIX path must not turn a requested directory into a file.
+    // In particular realpath("file") succeeds, so a trailing "/." needs this
+    // check before canonicalizing the parent and publishing the leaf name.
+    if (requestedPath.endsWith(sep) || name === "." || name === "..")
+      return err(
+        new EvidenceFileError("write", "not-file", { path: requestedPath }),
+      );
     const canonicalParent = await realpath(dirname(requestedPath));
-    const destination = resolve(canonicalParent, basename(requestedPath));
+    const destination = resolve(canonicalParent, name);
     const existing = await lstat(destination).catch((cause: unknown) => {
       if (fileErrorCode(cause) === "ENOENT") return undefined;
       throw cause;
