@@ -87,6 +87,7 @@ export interface JavaScriptEndpointInput {
   readonly value: string;
   readonly mechanism: string;
   readonly interpretation?: "candidate";
+  readonly resolution?: "partial";
 }
 
 /** Values required to append one module-attributable static finding. */

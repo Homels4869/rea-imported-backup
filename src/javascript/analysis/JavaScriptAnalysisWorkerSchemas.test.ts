@@ -47,3 +47,19 @@ it("accepts candidate endpoint interpretations from static analysis", () => {
     ).success,
   ).toBe(true);
 });
+
+it("accepts partial endpoint resolutions from static analysis", () => {
+  const facts = analyzeJavaScriptStaticSource("fetch(endpointUrl);");
+  expect(facts.endpoints).toContainEqual(
+    expect.objectContaining({
+      kind: "network",
+      value: "endpointUrl",
+      resolution: "partial",
+    }),
+  );
+  expect(
+    javaScriptWorkerStaticAnalysisSchema.safeParse(
+      JSON.parse(JSON.stringify(facts)) as unknown,
+    ).success,
+  ).toBe(true);
+});

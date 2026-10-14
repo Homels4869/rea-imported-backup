@@ -47,6 +47,8 @@ export interface JavaScriptStaticEndpoint {
   readonly mechanism: string;
   /** An overloaded callee name suggests this value; its network receiver is unproven. */
   readonly interpretation?: "candidate";
+  /** The request target is not an exact literal; `value` retains its unresolved source expression. */
+  readonly resolution?: "partial";
   readonly module_key: string | null;
   /** Recovered factory runtime; absent in older or unbundled findings. */
   readonly module_runtime?: string;

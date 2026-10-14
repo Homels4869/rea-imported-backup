@@ -4,7 +4,12 @@ import { analyzeJavaScriptStaticSource } from "./javascriptStaticAnalysis.js";
 
 const endpoints = (source: string) =>
   analyzeJavaScriptStaticSource(source).endpoints.map(
-    ({ kind, value, mechanism }) => ({ kind, value, mechanism }),
+    ({ kind, value, mechanism, resolution }) => ({
+      kind,
+      value,
+      mechanism,
+      ...(resolution === undefined ? {} : { resolution }),
+    }),
   );
 
 describe("beacon endpoints", () => {
@@ -28,7 +33,14 @@ describe("beacon endpoints", () => {
     ]);
   });
 
-  it("keeps a dynamic beacon URL unreported", () => {
-    expect(endpoints("navigator.sendBeacon(url, payload);")).toEqual([]);
+  it("retains a dynamic beacon URL as a partial endpoint", () => {
+    expect(endpoints("navigator.sendBeacon(url, payload);")).toEqual([
+      {
+        kind: "network",
+        value: "url",
+        mechanism: "call:navigator.sendBeacon",
+        resolution: "partial",
+      },
+    ]);
   });
 });

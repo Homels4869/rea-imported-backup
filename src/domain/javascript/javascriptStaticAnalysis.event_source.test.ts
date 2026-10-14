@@ -4,7 +4,12 @@ import { analyzeJavaScriptStaticSource } from "./javascriptStaticAnalysis.js";
 
 const endpoints = (source: string) =>
   analyzeJavaScriptStaticSource(source).endpoints.map(
-    ({ kind, value, mechanism }) => ({ kind, value, mechanism }),
+    ({ kind, value, mechanism, resolution }) => ({
+      kind,
+      value,
+      mechanism,
+      ...(resolution === undefined ? {} : { resolution }),
+    }),
   );
 
 describe("server-sent event endpoints", () => {
@@ -34,7 +39,14 @@ describe("server-sent event endpoints", () => {
     ]);
   });
 
-  it("keeps a dynamic EventSource URL unreported", () => {
-    expect(endpoints("new EventSource(url);")).toEqual([]);
+  it("retains a dynamic EventSource URL as a partial endpoint", () => {
+    expect(endpoints("new EventSource(url);")).toEqual([
+      {
+        kind: "network",
+        value: "url",
+        mechanism: "call:EventSource",
+        resolution: "partial",
+      },
+    ]);
   });
 });

@@ -74,3 +74,87 @@ it("keeps ambiguous endpoint candidates inferred through artifact graph projecti
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("keeps partial network endpoints visible through artifact graph projection", async () => {
+  const root = await createTestTempDirectory("rea-js-endpoint-partial-");
+  await writeFile(
+    join(root, "app.js"),
+    "fetch(`https://api.example.com/items/${id}`);",
+  );
+  const snapshot = await scanCanonicalArtifactInventory(root, {});
+  const reader = createJavaScriptArtifactReader(root, "directory");
+  try {
+    const files = await readJavaScriptArtifactFiles(reader, snapshot);
+    const analysis = analyzeJavaScriptArtifactFiles(files);
+    const graph = buildJavaScriptArtifactGraph(snapshot, files, analysis);
+    const partial = graph.nodes
+      .filter(({ kind }) => kind === "endpoint")
+      .find(({ observations }) =>
+        observations.some(
+          ({ properties }) => properties.resolution === "partial",
+        ),
+      );
+
+    expect(partial).toBeDefined();
+    expect(partial?.observations[0]?.properties).toMatchObject({
+      endpoint_kind: "network",
+      value: "`https://api.example.com/items/${id}`",
+      mechanism: "call:fetch",
+      resolution: "partial",
+    });
+    expect(partial?.observations[0]?.evidence).toMatchObject({
+      authority: "ast-static-analysis",
+      state: "observed",
+      confidence: "exact",
+      location: {
+        available: true,
+        value: { kind: "source-range", source: "app.js" },
+      },
+    });
+    expect(partial?.observations[0]?.evidence.limitations).toEqual(
+      expect.arrayContaining([expect.stringContaining("not an exact literal")]),
+    );
+    const edge = graph.edges.find(
+      ({ target_node_id }) => target_node_id === partial?.node_id,
+    );
+    expect(edge?.properties.resolution).toBe("partial");
+    expect(edge?.evidence.limitations).toEqual(
+      expect.arrayContaining([expect.stringContaining("not an exact literal")]),
+    );
+  } finally {
+    await reader.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a partial expression and a complete literal with the same text distinct", async () => {
+  const root = await createTestTempDirectory("rea-js-endpoint-identity-");
+  await writeFile(join(root, "app.js"), 'fetch(target); fetch("target");');
+  const snapshot = await scanCanonicalArtifactInventory(root, {});
+  const reader = createJavaScriptArtifactReader(root, "directory");
+  try {
+    const files = await readJavaScriptArtifactFiles(reader, snapshot);
+    const analysis = analyzeJavaScriptArtifactFiles(files);
+    const graph = buildJavaScriptArtifactGraph(snapshot, files, analysis);
+    const targets = graph.nodes.filter(({ kind }) => kind === "endpoint");
+    const partial = targets.find(({ observations }) =>
+      observations.some(
+        ({ properties }) =>
+          properties.value === "target" && properties.resolution === "partial",
+      ),
+    );
+    const complete = targets.find(({ observations }) =>
+      observations.some(
+        ({ properties }) =>
+          properties.value === "target" && properties.resolution === undefined,
+      ),
+    );
+
+    expect(partial).toBeDefined();
+    expect(complete).toBeDefined();
+    expect(partial?.node_id).not.toBe(complete?.node_id);
+  } finally {
+    await reader.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
