@@ -1,4 +1,5 @@
 import { rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -54,7 +55,11 @@ const utilityProcess = {
     return child;
   },
 };
-const shell = { openExternal: () => Promise.resolve(), openPath: () => Promise.resolve() };
+const shell = {
+  openExternal: () => Promise.resolve(),
+  openPath: () => Promise.resolve(),
+  trashItem: () => Promise.resolve(),
+};
 const createSession = () => {
   const value = new EventEmitter();
   value.setPermissionRequestHandler = () => undefined;
@@ -102,6 +107,7 @@ const defaultPopupDecision = window.webContents.windowOpenHandler({ url: "https:
 window.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
 const popupDecision = window.webContents.windowOpenHandler({ url: "https://popup.invalid" });
 electron.shell.openExternal("https://example.invalid").catch(() => undefined);
+electron.shell.trashItem("/path/to/host/file").catch(() => undefined);
 electron.app.relaunch();
 electron.contextBridge.exposeInMainWorld("api", { value: true });
 window.webContents.loadURL("https://example.invalid").catch(() => undefined);
@@ -184,7 +190,16 @@ it("retains active hook evidence within its event-retention budget", async () =>
     expect.arrayContaining([
       expect.objectContaining({ kind: "window-lifecycle", event: "created" }),
       expect.objectContaining({ kind: "preload", event: "configured" }),
-      expect.objectContaining({ kind: "shell-attempt", phase: "blocked" }),
+      expect.objectContaining({
+        kind: "shell-attempt",
+        event: "openExternal",
+        phase: "blocked",
+      }),
+      expect.objectContaining({
+        kind: "shell-attempt",
+        event: "trashItem",
+        phase: "blocked",
+      }),
       expect.objectContaining({ kind: "updater", phase: "blocked" }),
       expect.objectContaining({ kind: "native-addon" }),
       expect.objectContaining({ kind: "popup-attempt", phase: "blocked" }),
@@ -269,6 +284,77 @@ it("preserves fatal process termination after recording uncaught exceptions", as
 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("fatal-hook-secret");
+});
+
+it("blocks and records shell.trashItem calls", async () => {
+  const require = createRequire(import.meta.url);
+  const { createElectronActiveBoundaryPatches } =
+    require("../../../scripts/electron-active-hook-boundaries.cjs") as {
+      createElectronActiveBoundaryPatches: (context: {
+        readonly identity: (value: unknown, role: string) => string;
+        readonly patchEmitter: (target: unknown, listener: unknown) => void;
+        readonly processType: () => string;
+        readonly recordIpc: () => null;
+        readonly recordRuntime: (
+          kind: string,
+          event: string,
+          phase: string,
+          meta: Record<string, unknown>,
+        ) => void;
+        readonly shape: (value: unknown) => string;
+      }) => {
+        patchShell: (shell: {
+          openExternal?: unknown;
+          openPath?: unknown;
+          trashItem?: (path: string) => Promise<void>;
+        }) => void;
+      };
+    };
+  const recorded: Array<{
+    kind: string;
+    event: string;
+    phase: string;
+    meta: Record<string, unknown>;
+  }> = [];
+  const patches = createElectronActiveBoundaryPatches({
+    identity: () => "shell",
+    patchEmitter: () => undefined,
+    processType: () => "browser",
+    recordIpc: () => null,
+    recordRuntime: (
+      kind: string,
+      event: string,
+      phase: string,
+      meta: Record<string, unknown>,
+    ) => recorded.push({ kind, event, phase, meta }),
+    shape: (x: unknown) => typeof x,
+  });
+  let trashed = false;
+  const targetShell = {
+    openExternal: (_url: string) => Promise.resolve(),
+    openPath: (_path: string) => Promise.resolve(""),
+    trashItem: (_path: string) => {
+      trashed = true;
+      return Promise.resolve();
+    },
+  };
+  patches.patchShell(targetShell);
+
+  await expect(targetShell.trashItem("/tmp/victim.txt")).rejects.toThrow(
+    "External shell effects are blocked",
+  );
+  expect(trashed).toBe(false);
+  expect(recorded).toContainEqual(
+    expect.objectContaining({
+      kind: "shell-attempt",
+      event: "trashItem",
+      phase: "blocked",
+      meta: expect.objectContaining({
+        argument_shape_values: ["/tmp/victim.txt"],
+        error: true,
+      }),
+    }),
+  );
 });
 
 const runNode = (
