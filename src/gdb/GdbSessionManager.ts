@@ -194,38 +194,79 @@ export const gdbThreadGroupCount = (mi: string): number | undefined => {
   return pids?.length;
 };
 
-const verifyGdbInferiorOutputSink = async (
+/** @internal Live /proc readback verifying inferior output descriptor routing. */
+export const verifyGdbInferiorOutputSink = async (
   pid: string,
   selectedTty: string,
   rememberIdentity: (identity: OwnedInferiorIdentity) => void,
+  fsOperations: {
+    readonly readFile?: (path: string, encoding: "utf8") => Promise<string>;
+    readonly readlink?: (path: string) => Promise<string>;
+    readonly realpath?: (path: string) => Promise<string>;
+    readonly stat?: (path: string) => Promise<{
+      readonly dev: number;
+      readonly ino: number;
+      readonly mode: number;
+    }>;
+  } = {},
 ): Promise<void> => {
   if (process.platform !== "linux")
     throw new Error(
       "GDB cannot confirm live inferior output descriptors outside Linux /proc.",
     );
+  const readProcFile = fsOperations.readFile ?? readFile;
+  const readProcLink = fsOperations.readlink ?? readlink;
+  const realProcPath = fsOperations.realpath ?? realpath;
+  const statProc = fsOperations.stat ?? stat;
   const statPath = `/proc/${pid}/stat`;
-  const before = parseLinuxProcessStartTime(await readFile(statPath, "utf8"));
+  let beforeStat: string | undefined;
+  try {
+    beforeStat = await readProcFile(statPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new Error("GDB could not establish the live inferior identity.");
+    throw error;
+  }
+  const before = parseLinuxProcessStartTime(beforeStat);
   if (before === undefined)
     throw new Error("GDB could not establish the live inferior identity.");
-  const ttyPath = await realpath(selectedTty);
-  const tty = await stat(ttyPath);
+  const ttyPath = await realProcPath(selectedTty);
+  const tty = await statProc(ttyPath);
   if ((tty.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR)
     throw new Error("The selected GDB output sink is not a character device.");
   for (const descriptor of ["1", "2"]) {
     const descriptorPath = `/proc/${pid}/fd/${descriptor}`;
-    const destination = await readlink(descriptorPath);
-    const observed = await stat(descriptorPath);
-    if (
-      observed.dev !== tty.dev ||
-      observed.ino !== tty.ino ||
-      (observed.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR ||
-      (await realpath(destination)) !== ttyPath
-    )
-      throw new Error(
-        `GDB inferior descriptor ${descriptor} no longer points to the selected TTY.`,
-      );
+    try {
+      const destination = await readProcLink(descriptorPath);
+      const observed = await statProc(descriptorPath);
+      if (
+        observed.dev !== tty.dev ||
+        observed.ino !== tty.ino ||
+        (observed.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR ||
+        (await realProcPath(destination)) !== ttyPath
+      )
+        throw new Error(
+          `GDB inferior descriptor ${descriptor} no longer points to the selected TTY.`,
+        );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        throw new Error(
+          `GDB inferior descriptor ${descriptor} no longer points to the selected TTY.`,
+        );
+      throw error;
+    }
   }
-  const after = parseLinuxProcessStartTime(await readFile(statPath, "utf8"));
+  let afterStat: string | undefined;
+  try {
+    afterStat = await readProcFile(statPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new Error(
+        "The GDB inferior identity changed during descriptor readback.",
+      );
+    throw error;
+  }
+  const after = parseLinuxProcessStartTime(afterStat);
   if (after !== before)
     throw new Error(
       "The GDB inferior identity changed during descriptor readback.",

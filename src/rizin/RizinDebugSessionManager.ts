@@ -1245,17 +1245,30 @@ export class RizinDebugSessionManager {
       throw new Error("Rizin dbg.exitkills readback did not confirm false.");
     for (const descriptor of ["1", "2"]) {
       const descriptorPath = `/proc/${pid}/fd/${descriptor}`;
-      const destination = await readlink(descriptorPath);
-      const destinationStat = await stat(descriptorPath);
-      if (
-        destinationStat.dev !== session.inferiorTtyDevice ||
-        destinationStat.ino !== session.inferiorTtyInode ||
-        (destinationStat.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR ||
-        (await realpath(destination)) !== session.inferiorTty
-      )
-        throw new Error(
-          `Inferior descriptor ${descriptor} is not routed to the selected TTY.`,
-        );
+      try {
+        const destination = await readlink(descriptorPath);
+        const destinationStat = await stat(descriptorPath);
+        if (
+          destinationStat.dev !== session.inferiorTtyDevice ||
+          destinationStat.ino !== session.inferiorTtyInode ||
+          (destinationStat.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR ||
+          (await realpath(destination)) !== session.inferiorTty
+        )
+          throw new Error(
+            `Inferior descriptor ${descriptor} is not routed to the selected TTY.`,
+          );
+      } catch (cause: unknown) {
+        if (
+          typeof cause === "object" &&
+          cause !== null &&
+          "code" in cause &&
+          cause.code === "ENOENT"
+        )
+          throw new Error(
+            `Inferior descriptor ${descriptor} is not routed to the selected TTY.`,
+          );
+        throw cause;
+      }
     }
   }
 
@@ -1394,8 +1407,28 @@ export const assertRizinProcessStartTimeStable = (
     );
 };
 
-const readProcStartTime = async (pid: string): Promise<string> =>
-  parseRizinProcStartTime(await readFile(`/proc/${pid}/stat`, "utf8"));
+/** @internal */
+export const readProcStartTime = async (
+  pid: string,
+  readFileFn: (path: string, encoding: "utf8") => Promise<string> = readFile,
+): Promise<string> => {
+  let stat: string;
+  try {
+    stat = await readFileFn(`/proc/${pid}/stat`, "utf8");
+  } catch (cause: unknown) {
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      cause.code === "ENOENT"
+    )
+      throw new Error(
+        "The inferior PID disappeared or was reused during detach verification.",
+      );
+    throw cause;
+  }
+  return parseRizinProcStartTime(stat);
+};
 
 const waitForCommandFrames = async (
   session: RizinDebugSession,
