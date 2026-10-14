@@ -64,6 +64,16 @@ const dossier = (
     limitations: [],
   });
 
+/**
+ * A dossier whose provider examined the Swift String literal facet and decoded
+ * none. `dossier()` leaves that facet unexamined, which the comparison keeps
+ * unknown rather than treating as an observed absence of literals.
+ */
+const fullyObservedSwiftLiterals = (
+  value: ReturnType<typeof dossier>,
+): ReturnType<typeof dossier> =>
+  functionDossierSchema.parse({ ...value, swift_string_literals: [] });
+
 const dossierWithReference = (
   base: "0x1000" | "0x2000",
   kind: "call" | "data" | "unavailable",
@@ -413,6 +423,7 @@ describe("function collection collation ties", () => {
     functionDossierSchema.parse({
       ...dossier("return 0;", "0x1000"),
       callees,
+      swift_string_literals: [],
     });
 
   it("ignores reordered callees whose distinct names collate equally", () => {
@@ -543,6 +554,7 @@ describe("function comparison ordering controls", () => {
         outgoing_references: reverse ? [...edges].reverse() : edges,
         referenced_strings: reverse ? [...strings].reverse() : strings,
         referenced_names: reverse ? [...strings].reverse() : strings,
+        swift_string_literals: [],
       });
     };
     const makeEvidence = (digit: string, result: unknown): Evidence =>
@@ -660,8 +672,16 @@ describe("function comparison unresolved text", () => {
   });
 
   it("counts Unicode text consistently for unresolved provider comparisons", () => {
-    const left = observe("b", dossier("return '😀';", "0x1000"), "provider-a");
-    const right = observe("c", dossier("return '😀';", "0x2000"), "provider-b");
+    const left = observe(
+      "b",
+      fullyObservedSwiftLiterals(dossier("return '😀';", "0x1000")),
+      "provider-a",
+    );
+    const right = observe(
+      "c",
+      fullyObservedSwiftLiterals(dossier("return '😀';", "0x2000")),
+      "provider-b",
+    );
     const comparison = compareFunctions(left, right);
     expect(
       comparison.dimensions.find(({ dimension }) => dimension === "pseudocode"),
@@ -728,8 +748,16 @@ describe("function comparison", () => {
   });
 
   it("treats provider-specific text as unknown and validates Evidence", () => {
-    const left = observe("5", dossier("return 0;", "0x1000"), "provider-a");
-    const right = observe("6", dossier("return 1;", "0x2000"), "provider-b");
+    const left = observe(
+      "5",
+      fullyObservedSwiftLiterals(dossier("return 0;", "0x1000")),
+      "provider-a",
+    );
+    const right = observe(
+      "6",
+      fullyObservedSwiftLiterals(dossier("return 1;", "0x2000")),
+      "provider-b",
+    );
     const comparison = compareFunctions(left, right);
     expect(
       comparison.dimensions.find(({ dimension }) => dimension === "pseudocode"),
@@ -741,8 +769,14 @@ describe("function comparison", () => {
   });
 
   it("reports fully observed identical dossiers as unchanged", () => {
-    const left = observe("7", dossier("return 0;\n", "0x1000"));
-    const right = observe("8", dossier("return 0;\n", "0x2000"));
+    const left = observe(
+      "7",
+      fullyObservedSwiftLiterals(dossier("return 0;\n", "0x1000")),
+    );
+    const right = observe(
+      "8",
+      fullyObservedSwiftLiterals(dossier("return 0;\n", "0x2000")),
+    );
     const comparison = compareFunctions(left, right);
     expect(comparison.status).toBe("unchanged");
     expect(
@@ -888,6 +922,35 @@ describe("function comparison Swift string literals", () => {
         withLiterals("0x2000", ["SleepDisabled"]),
       ),
     ).toMatchObject({ status: "unchanged" });
+  });
+
+  it("keeps strings and names unknown when neither dossier examined Swift literals", () => {
+    expect(
+      stringsDimension(
+        "0",
+        dossier("return 0;", "0x1000"),
+        "2",
+        dossier("return 0;", "0x2000"),
+      ),
+    ).toMatchObject({
+      status: "unknown",
+      limitations: [
+        "Neither dossier examined Swift String literals; matching referenced strings and names do not establish unchanged literals.",
+      ],
+    });
+  });
+
+  it("keeps the overall comparison unknown when neither dossier examined Swift literals", () => {
+    const comparison = compareFunctions(
+      observe("6", dossier("return 0;", "0x1000")),
+      observe("7", dossier("return 0;", "0x2000")),
+    );
+    expect(
+      comparison.dimensions.find(
+        ({ dimension }) => dimension === "strings_names",
+      ),
+    ).toMatchObject({ status: "unknown" });
+    expect(comparison.status).toBe("unknown");
   });
 
   it("keeps strings and names unknown when only one dossier recorded Swift literals", () => {

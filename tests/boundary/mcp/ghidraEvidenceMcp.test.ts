@@ -100,7 +100,9 @@ it.each([
         comments: "unchanged",
         calls: reportsCoverage ? "unchanged" : "unknown",
         references: "unchanged",
-        strings_names: "unchanged",
+        // The fixture records no Swift literal decoding, so the facet stays
+        // unexamined rather than observed empty.
+        strings_names: "unknown",
         cfg: "unchanged",
       });
       const replay = await harness.session.execute(

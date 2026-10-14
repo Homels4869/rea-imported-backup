@@ -42,6 +42,7 @@ const dossier = jsonValueSchema.parse(
     outgoing_references: [],
     referenced_strings: [],
     referenced_names: [],
+    swift_string_literals: [],
     native_api: null,
     native_value_flow: null,
     facet_availability: {

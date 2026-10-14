@@ -24,6 +24,7 @@ const dossier = (text: string) =>
     outgoing_references: [],
     referenced_strings: [],
     referenced_names: [],
+    swift_string_literals: [],
     basic_blocks: [{ start: "0x1000", end: "0x1001", successors: [] }],
     native_api: null,
     native_value_flow: null,

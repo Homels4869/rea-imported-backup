@@ -223,9 +223,24 @@ export const swiftLiteralSitesConflict = (
   return false;
 };
 
+/**
+ * The single owner of how much of the Swift literal facet a dossier examined.
+ * `swift_string_literals` is absent when the provider does not decode literals
+ * for this target, which means "never examined", never "no literals".
+ */
+type SwiftLiteralCoverage = "absent" | "complete" | "partial";
+
+export const swiftLiteralCoverage = (
+  snapshot: FunctionSnapshot,
+): SwiftLiteralCoverage =>
+  (snapshot.dossier.swift_string_literal_omissions ?? []).length > 0
+    ? "partial"
+    : snapshot.dossier.swift_string_literals === undefined
+      ? "absent"
+      : "complete";
+
 const swiftLiteralSites = (snapshot: FunctionSnapshot) => {
   const base = snapshot.dossier.procedure.address;
-  const omissions = snapshot.dossier.swift_string_literal_omissions ?? [];
   const site = (sourceAddress: string, registers: readonly string[]) => {
     const offset = relativeAddress(sourceAddress, base);
     return offset === null ? null : canonicalJson([offset, registers]);
@@ -243,9 +258,7 @@ const swiftLiteralSites = (snapshot: FunctionSnapshot) => {
       ].sort(compareUnicodeCodePoints),
     );
   }
-  const complete =
-    snapshot.dossier.swift_string_literals !== undefined &&
-    omissions.length === 0;
+  const complete = swiftLiteralCoverage(snapshot) === "complete";
   return { values, complete };
 };
 
