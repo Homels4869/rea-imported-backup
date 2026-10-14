@@ -177,10 +177,14 @@ const sourceMapsStatus = (
   items: readonly SourceMapItem[],
   omitted: boolean,
 ): SourceMaps["status"] => {
+  // No requests means nothing was lost: selecting map fetching for scripts
+  // that declare none is vacuously complete, not unavailable (#3217).
+  // A budget omission with zero retained items is still unavailable.
+  if (items.length === 0) return omitted ? "unavailable" : "included";
   const retained = items.filter(
     ({ status }) => status === "included" || status === "partial",
   ).length;
-  if (items.length === 0 || retained === 0) return "unavailable";
+  if (retained === 0) return "unavailable";
   if (omitted) return "partial";
   return retained === items.length &&
     !items.some(({ status }) => status === "partial")

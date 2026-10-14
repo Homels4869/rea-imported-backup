@@ -136,7 +136,7 @@ export const webSourceMapsSchema = z
           ? ["unavailable"]
           : ["partial"]
         : sourceMaps.items.length === 0
-          ? ["not_requested", "unavailable"]
+          ? ["not_requested", "unavailable", "included"]
           : retained === 0
             ? ["unavailable"]
             : retained === sourceMaps.items.length &&
