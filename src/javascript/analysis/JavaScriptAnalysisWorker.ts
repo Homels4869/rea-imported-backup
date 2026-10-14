@@ -251,6 +251,10 @@ export class JavaScriptAnalysisWorker {
                 parent_result_budget_bytes: this.#resultBudgetBytes,
                 parent_result_budget_exhausted: true,
               },
+              {
+                remediationAction:
+                  "Use the retained static facts or analyze fewer source files. This limit belongs to the parent result budget; increasing the worker heap alone does not increase it.",
+              },
             );
           offeredResultBudget =
             this.#applicationProjectionFailure !== undefined &&

@@ -46,19 +46,24 @@ export const analysisErrorRemediationAction = (
       error.remediationAction ??
       "Select a target supported by this operation or choose an operation supporting the reported target format."
     );
-  if (error instanceof AnalysisResourceConstraintError)
-    return (
-      error.remediationAction ??
-      (error.resource === "capacity"
-        ? "Wait for an active analysis to complete, then retry within the reported admission limits."
-        : error.resource === "transport"
-          ? "Discover retained records with get_evidence_bundle and detail: summary, then inspect compatible records through inspect_analysis_view using an exact Evidence reference. Export complete retained session evidence through export_evidence_bundle to a caller-selected path, or use complete CLI JSON output. The connection remains usable."
-          : error.resource === "cpu"
-            ? "Review the reported worker CPU limits and observed signal. Retry with sufficient CPU time or a smaller artifact; REA retains tighter inherited limits."
-            : error.resource === "file-size"
-              ? "Review the reported worker file-size limits and write failure. Retry with a sufficient file-size allowance for the evidence reply; REA retains tighter inherited limits."
-              : "Review the reported worker memory limits and available host memory. Retry with sufficient memory or a smaller artifact; REA retains tighter inherited limits.")
-    );
+  if (error instanceof AnalysisResourceConstraintError) {
+    if (error.remediationAction !== undefined) return error.remediationAction;
+    // An exhausted parent result budget is a parent-side retention limit, not a
+    // worker heap limit: raising the worker heap never raises it. Fall back to
+    // the parent budget remediation so no producer regresses to the generic
+    // memory advice for reporting parent_result_budget_exhausted.
+    if (error.reportedLimits?.parent_result_budget_exhausted === true)
+      return "Use the retained facts or analyze fewer source files. This limit belongs to the parent result budget; increasing the worker heap alone does not increase it.";
+    return error.resource === "capacity"
+      ? "Wait for an active analysis to complete, then retry within the reported admission limits."
+      : error.resource === "transport"
+        ? "Discover retained records with get_evidence_bundle and detail: summary, then inspect compatible records through inspect_analysis_view using an exact Evidence reference. Export complete retained session evidence through export_evidence_bundle to a caller-selected path, or use complete CLI JSON output. The connection remains usable."
+        : error.resource === "cpu"
+          ? "Review the reported worker CPU limits and observed signal. Retry with sufficient CPU time or a smaller artifact; REA retains tighter inherited limits."
+          : error.resource === "file-size"
+            ? "Review the reported worker file-size limits and write failure. Retry with a sufficient file-size allowance for the evidence reply; REA retains tighter inherited limits."
+            : "Review the reported worker memory limits and available host memory. Retry with sufficient memory or a smaller artifact; REA retains tighter inherited limits.";
+  }
   if (error instanceof HopperTimeoutError)
     return error.operation === undefined
       ? "Inspect Hopper for a loader or license dialog and review details.launcher. Correct the loader configuration or complete Hopper setup, then open the target again."
