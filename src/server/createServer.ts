@@ -135,6 +135,8 @@ import { GdbSessionManager } from "../gdb/GdbSessionManager.js";
 import { registerGdbTools } from "./registerGdbTools.js";
 import { RizinDebugSessionManager } from "../rizin/RizinDebugSessionManager.js";
 import { registerRizinDebugTools } from "./registerRizinDebugTools.js";
+import { Radare2SessionManager } from "../radare2/Radare2SessionManager.js";
+import { registerRadare2SessionTools } from "./registerRadare2SessionTools.js";
 
 const TARGET_FREE_INSTRUCTIONS =
   "REA provides reverse-engineering tools for local artifacts, native binaries, managed code, browser pages, and runtimes. Use the tool that directly answers the question; discover targets or inspect inventory only when needed. Tool results include inline Evidence and report their coverage and limitations.";
@@ -343,6 +345,7 @@ export const createServer = (
     environment: providerEnvironment,
   });
   const rizinDebugSessions = new RizinDebugSessionManager(providerEnvironment);
+  const radare2Sessions = new Radare2SessionManager(providerEnvironment);
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
   const pcap = options.pcapAnalysis ?? createPcapAnalysisProvider(environment);
@@ -392,6 +395,7 @@ export const createServer = (
       firmwareAnalysis.close(),
       gdbSessions.closeAll(),
       rizinDebugSessions.closeAll(),
+      radare2Sessions.closeAll(),
     ])
       .then((results) => {
         const failures = results.flatMap((result) =>
@@ -451,12 +455,13 @@ export const createServer = (
       : () => session.invalidateSnapshotForExternalMutation(),
     session === undefined
       ? undefined
-      : (path, signal, operation, rebindFailure) =>
+      : (path, signal, operation, rebindFailure, operationName) =>
           session.withAdmittedExternalMutation(
             path,
             signal,
             operation,
             rebindFailure,
+            operationName,
           ),
   );
   registerFridaTools(
@@ -491,6 +496,16 @@ export const createServer = (
   registerRizinDebugTools(
     server,
     rizinDebugSessions,
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+    session,
+  );
+  registerRadare2SessionTools(
+    server,
+    radare2Sessions,
     toolLogger,
     delivery,
     session === undefined

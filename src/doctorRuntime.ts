@@ -6,6 +6,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { inspectJadxProvider } from "./android/JadxDoctor.js";
 import { inspectSystemGhidraProvider } from "./ghidra/GhidraDoctor.js";
+import { inspectRadare2Provider } from "./radare2/Radare2Doctor.js";
 import { inspectIdaRegistration } from "./ida/IdaDoctor.js";
 import { parseJebMcpEndpoint } from "./jeb/JebMcpEndpoint.js";
 import { selectLinuxPrivateDisplayStrategy } from "./hopper/LinuxPrivateDisplayProbe.js";
@@ -28,6 +29,7 @@ export const createSystemDoctorHost = (
       await inspectSystemGhidraProvider(environment),
       inspectIdaRegistration(environment.REA_IDA_MCP_CONFIG),
       await inspectJadxProvider(environment),
+      await inspectRadare2Provider(environment),
     ],
     linuxDemoRuntimeCheck: () => inspectLinuxPrivateDisplay(environment),
   });
