@@ -2,7 +2,7 @@
 name: reverse-engineer-anything
 description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
 metadata:
-  version: "42"
+  version: "43"
 ---
 
 # REA
@@ -199,6 +199,12 @@ explicit path or endpoint and do not need it.
 - PE resource type/name/language trees and static icon group references:
   `inspect_pe_resources` with an explicit path. This portable operation requires
   no active target or engine; opaque payloads retain file ranges and SHA-256.
+- Windows PRI resource index (`resources.pri` of MSIX/UWP/WinUI apps) for UI
+  strings and qualified assets: `inspect_pri_resources` with an explicit path,
+  without the Windows SDK or makepri. Read the default items page, then select
+  `collection: "candidates"` by exact `names`, `query`, `qualifiers` (for
+  example Language en-US) or `value_types`; follow `page.next_offset`. Values
+  held by resource packs or referenced files remain explicit unknowns.
 - Native executable, library, or analysis database: `open_binary`, then
   use focused analysis tools directly; call `binary_overview` when metadata or
   inventory context is useful and available from the selected provider.

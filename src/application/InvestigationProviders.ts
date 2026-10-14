@@ -48,6 +48,13 @@ export const PE_RESOURCES_PROVIDER = Object.freeze({
   version: "1",
 } as const);
 
+/** Provider identity for portable, execution-free Windows PRI resource index decoding. */
+export const PRI_RESOURCES_PROVIDER = Object.freeze({
+  id: "rea-pri-resources",
+  name: "REA PRI resource index parser",
+  version: "1",
+} as const);
+
 /** Provider identity for deterministic managed-code comparison workflows. */
 export const MANAGED_WORKFLOW_PROVIDER = {
   id: "rea-dotnet-workflows",
