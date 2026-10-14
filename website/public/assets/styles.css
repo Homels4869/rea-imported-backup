@@ -230,11 +230,13 @@ section[id] {
 .header-inner {
   min-height: 88px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 2rem;
+  gap: 2rem 1.5rem;
 }
 .brand {
+  container: brand / inline-size;
+  min-inline-size: 0;
   display: flex;
   align-items: baseline;
   gap: 0.9rem;
@@ -250,13 +252,19 @@ section[id] {
 .brand-caption {
   color: var(--muted);
   font-size: 0.9rem;
+  white-space: nowrap;
+}
+/* Show the caption only when it fits beside the brand name. */
+@container brand (width < 14.5rem) {
+  .brand-caption {
+    display: none;
+  }
 }
 .navigation {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   font-size: 0.9rem;
-  flex-wrap: wrap;
   gap: 0.65rem 1.4rem;
 }
 .navigation a {
@@ -2895,14 +2903,18 @@ html[dir="rtl"] .breadcrumb,
 html[dir="rtl"] .brand-name {
   unicode-bidi: isolate;
 }
-@media (min-width: 851px) and (max-width: 1250px) {
-  .brand-caption {
-    display: none;
+@media (min-width: 1101px) {
+  .navigation {
+    column-gap: 1.2rem;
   }
 }
-@media (max-width: 850px) {
+/* Move the navigation to its own row before one line cannot hold it. */
+@media (max-width: 1100px) {
   .header-inner {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+  .brand {
+    container-type: normal;
   }
   .brand-caption {
     display: none;
@@ -2911,6 +2923,7 @@ html[dir="rtl"] .brand-name {
     grid-column: 1 / -1;
     grid-row: 2;
     justify-content: flex-start;
+    flex-wrap: wrap;
     padding-bottom: 0.8rem;
   }
   .header-social {
@@ -2918,6 +2931,10 @@ html[dir="rtl"] .brand-name {
     grid-row: 1;
     min-inline-size: 0;
     justify-content: flex-end;
+  }
+}
+@media (max-width: 850px) {
+  .header-social {
     gap: 0.45rem;
   }
   .nav-github-count {
@@ -2933,6 +2950,25 @@ html[dir="rtl"] .brand-name {
   }
   .explanatory-figure figcaption a {
     white-space: normal;
+  }
+}
+/* Phones: six links in three even columns and two rows. */
+@media (max-width: 640px) {
+  .navigation {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    justify-content: space-between;
+    gap: 0.35rem 1rem;
+    font-size: 0.9rem;
+  }
+  .navigation a {
+    min-height: 40px;
+  }
+}
+@media (max-width: 340px) {
+  .navigation {
+    column-gap: 0.6rem;
+    font-size: 0.85rem;
   }
 }
 @media (max-width: 400px) {
