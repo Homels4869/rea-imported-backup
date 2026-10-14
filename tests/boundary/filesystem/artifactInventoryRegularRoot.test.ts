@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { expect, it } from "vitest";
+import { buildBinary } from "plist";
 
 import {
   classifyAndHashRoot,
@@ -69,5 +70,36 @@ it("keeps unavailable container traversal distinct from observed root bytes", as
   expect(inventory.coverage).toEqual({
     scope: "container-entries",
     status: "unknown",
+  });
+});
+
+it("keeps root ASAR selection separate from nested XML content", async () => {
+  const root = await createTestTempDirectory("rea-xml-asar-root-");
+  const path = join(root, "state.asar");
+  await writeFile(path, '<?xml version="1.0"?><plist><dict/></plist>');
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.manifest.root_format).toBe("file");
+  expect(inventory.occurrences[0]).toMatchObject({
+    artifact_kind: "resource",
+    artifact_format: "file",
+  });
+  const nested = await inventoryArtifact(root);
+  expect(
+    nested.occurrences.find((entry) => entry.logical_path === "state.asar"),
+  ).toMatchObject({
+    artifact_kind: "plist",
+    artifact_format: "plist",
+  });
+});
+
+it("retains binary plist magic for an ASAR-named root", async () => {
+  const root = await createTestTempDirectory("rea-binary-asar-root-");
+  const path = join(root, "state.asar");
+  await writeFile(path, buildBinary({ value: "binary plist" }));
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.manifest.root_format).toBe("plist");
+  expect(inventory.occurrences[0]).toMatchObject({
+    artifact_kind: "plist",
+    artifact_format: "plist",
   });
 });

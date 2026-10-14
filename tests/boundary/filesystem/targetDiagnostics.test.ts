@@ -411,3 +411,29 @@ describe("caller-selected and inferred target interpretation", () => {
     },
   );
 });
+
+// Database suffix routing must not depend on the bounded XML prolog probe.
+it.each([" ", "<!--", "<?audit "])(
+  "routes a non-WASM database with a long pending XML prefix (%s)",
+  async (prefix) => {
+    const directory = await createTestTempDirectory("rea-long-database-");
+    const path = join(directory, "ordinary.HOP");
+    await writeFile(path, prefix + " ".repeat(1024 * 1024));
+    expect(await parseBinaryTarget(path)).toMatchObject({
+      ok: true,
+      value: { kind: "database", format: "analysis-database" },
+    });
+  },
+);
+
+it("honors an explicit artifact interpretation for XML content named .hop", async () => {
+  const directory = await createTestTempDirectory("rea-selected-artifact-");
+  const path = join(directory, "state.hop");
+  await writeFile(path, "<plist><dict/></plist>");
+  expect(
+    await parseBinaryTarget(path, { targetKind: "artifact" }),
+  ).toMatchObject({
+    ok: true,
+    value: { kind: "artifact", format: "plist" },
+  });
+});

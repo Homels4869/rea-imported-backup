@@ -12,6 +12,7 @@ import {
 import {
   createXmlPlistSignatureProbe,
   MAX_XML_PLIST_PROBE_BYTES,
+  hasBinaryPlistSignature,
 } from "../../domain/apple/appleArchiveFormat.js";
 import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import {
@@ -186,8 +187,20 @@ const classifyRootFormat = async (
   }
   prefix = Buffer.concat(chunks);
   // ASAR is chosen from its header pickle; any other suffix is a role hint.
-  return classifyArtifactContent(path, prefix, (await handle.stat()).size)
-    .format;
+  const { format } = classifyArtifactContent(
+    path,
+    prefix,
+    (await handle.stat()).size,
+  );
+  // A root named ASAR must not switch to XML plist inspection. Without an
+  // ASAR header it remains opaque; nested members keep their observed bytes.
+  if (
+    lower.endsWith(".asar") &&
+    format === "plist" &&
+    !hasBinaryPlistSignature(prefix)
+  )
+    return "file";
+  return format;
 };
 
 /** App Pack is a verified ZIP root role; nested .app members retain their observed format. */

@@ -480,8 +480,7 @@ export const classifyArtifactContent = (
   if (
     format === "plist" &&
     !hasBinaryPlistSignature(prefix) &&
-    (["javascript", "source-map", "entitlements"].includes(byPath.kind) ||
-      path.toLowerCase().endsWith(".asar"))
+    ["javascript", "source-map", "entitlements"].includes(byPath.kind)
   )
     return byPath;
   if (

@@ -42,7 +42,6 @@ import {
   isZipPackageFormat,
   zipPackageFormatForPath,
 } from "../domain/zipPackageFormat.js";
-
 import {
   parseCodeViewData,
   parseExecutableHeader,
@@ -177,7 +176,7 @@ export const parseBinaryTarget = async (
       const artifactFormat =
         targetKind === "database"
           ? undefined
-          : await detectArtifactFormat(path, handle, signal);
+          : await detectArtifactFormat(path, handle, signal, targetKind);
       if (
         targetKind === "database" ||
         (targetKind === undefined && path.toLowerCase().endsWith(".hop"))
@@ -282,6 +281,7 @@ const detectArtifactFormat = async (
   path: string,
   handle: FileHandle,
   signal?: AbortSignal,
+  targetKind?: BinaryTarget["kind"],
 ): Promise<
   | Exclude<
       BinaryTarget["format"],
@@ -310,6 +310,7 @@ const detectArtifactFormat = async (
       "WebAssembly v1 artifacts are not supported by the native opening route",
       { constraint: "wasm_requires_static_inspection" },
     );
+  if (targetKind === undefined && lower.endsWith(".hop")) return undefined;
   if (hasZipSignature(magic.subarray(0, observed.bytesRead))) {
     // The HarmonyOS App Pack suffix `.app` is a root-input concept; a nested
     // ZIP member ending in `.app` keeps the generic zip classification.

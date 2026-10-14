@@ -239,7 +239,7 @@ it("preserves path-selected inventory roles for XML content", () => {
     format: "source-map",
   });
   expect(classifyArtifactContent("state.asar", xml)).toEqual({
-    kind: "resource",
-    format: "file",
+    kind: "plist",
+    format: "plist",
   });
 });
