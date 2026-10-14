@@ -20,7 +20,6 @@ import {
 } from "./MacHopperPaths.js";
 import {
   linuxHopperBinarySupported,
-  linuxSharedLibrariesAvailable,
   readLinuxDistribution,
   type LinuxDistribution,
 } from "./LinuxHopper.js";
@@ -405,6 +404,7 @@ export interface SystemDoctorHostOptions {
   readonly architecture?: NodeJS.Architecture;
   readonly environment?: NodeJS.ProcessEnv;
   readonly execFileOutput?: typeof execFileOutput;
+  readonly supportsLinuxHopper?: (path: string) => Promise<boolean>;
   readonly providerInspections?: () => Promise<
     readonly DoctorProviderInspection[]
   >;
@@ -423,6 +423,8 @@ export const systemDoctorHost = (
   const architecture = options.architecture ?? process.arch;
   const environment = options.environment ?? process.env;
   const hostExecFileOutput = options.execFileOutput ?? execFileOutput;
+  const supportsLinuxHopper =
+    options.supportsLinuxHopper ?? linuxHopperBinarySupported;
   const homeDirectory = homeDirectoryFromEnvironment(environment, platform);
   const commandEnvironment = { env: environment };
   return {
@@ -479,16 +481,10 @@ export const systemDoctorHost = (
         remediation: analysisErrorRemediationAction(error),
       };
     },
-    executable: (path) =>
-      executableAvailable(
-        path,
-        platform,
-        hostExecFileOutput,
-        commandEnvironment,
-      ),
+    executable: executableAvailable,
     linuxDemoRuntimeCheck:
       options.linuxDemoRuntimeCheck ?? uncomposedLinuxDemoRuntimeCheck,
-    supportedLinuxHopper: linuxHopperBinarySupported,
+    supportedLinuxHopper: supportsLinuxHopper,
     async brewHopperPath() {
       return probeHomebrew(async (command) => {
         let caskroom: string;
@@ -596,18 +592,10 @@ const readMacosVersion = async (
   }
 };
 
-const executableAvailable = async (
-  path: string,
-  platform: NodeJS.Platform,
-  run: typeof execFileOutput,
-  options: { readonly env: NodeJS.ProcessEnv },
-): Promise<boolean> => {
+const executableAvailable = async (path: string): Promise<boolean> => {
   try {
     await access(path, constants.X_OK);
-    if (!(await stat(path)).isFile()) return false;
-    if (platform !== "linux") return true;
-    const linked = await run("ldd", [path], options);
-    return linuxSharedLibrariesAvailable(`${linked.stdout}\n${linked.stderr}`);
+    return (await stat(path)).isFile();
   } catch (cause: unknown) {
     // best-effort cleanup: optional executable probing; failure means unavailable.
     void cause;

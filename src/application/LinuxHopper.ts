@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { execFileBoundedOutput } from "../process/ExecFileBoundedOutput.js";
-import { execFileOutput } from "../process/ExecFileOutput.js";
 import {
   downloadHopperPackage,
   HOPPER_DOWNLOAD_BYTES,
@@ -357,9 +356,12 @@ export const linuxHopperLauncherCandidates = (
   ...systemLinuxHopperLauncherCandidates,
 ];
 
-/** Compose package-manager and linker checks from the selected caller environment. */
+/** Compose package-manager and pinned-launcher checks from the caller environment. */
 export const systemLinuxHopperInstallHost = (
   environment: Readonly<NodeJS.ProcessEnv>,
+  supportsLauncher: (
+    path: string,
+  ) => Promise<boolean> = linuxHopperBinarySupported,
 ): LinuxHopperInstallHost => ({
   distribution: readLinuxDistribution,
   download: downloadHopperPackage,
@@ -370,12 +372,8 @@ export const systemLinuxHopperInstallHost = (
   async launcherStatus(path) {
     try {
       await access(path);
-      const linked = await execFileOutput("ldd", [path], { env: environment });
-      if (!linuxSharedLibrariesAvailable(`${linked.stdout}\n${linked.stderr}`))
-        return "runtime_dependencies";
-      return (await linuxHopperBinarySupported(path))
-        ? "ready"
-        : "unsupported_hopper_build";
+      if (!(await supportsLauncher(path))) return "unsupported_hopper_build";
+      return "ready";
     } catch (cause: unknown) {
       // best-effort cleanup: optional launcher probing; unreadable means missing.
       void cause;
@@ -403,10 +401,6 @@ export const linuxHopperBinarySupported = async (
 /** Match a launcher extracted from one of the pinned official Linux packages. */
 export const linuxHopperLauncherDigestSupported = (digest: string): boolean =>
   SUPPORTED_HOPPER_SHA256.has(digest);
-
-/** Interpret ldd output conservatively so a present but broken launcher is unhealthy. */
-export const linuxSharedLibrariesAvailable = (output: string): boolean =>
-  !/(?:=>\s+not found|error while loading shared libraries)/iu.test(output);
 
 const installSystemPackage = async (
   family: LinuxPackageFamily,
