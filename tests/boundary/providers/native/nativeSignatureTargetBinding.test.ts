@@ -438,11 +438,13 @@ it.skipIf(process.platform !== "darwin")(
       identifier: "rea.original",
     });
     if (!result.ok) throw result.error;
-    expect(
-      inspectSignatureSchema
-        .parse(result.value.result)
-        .provenance.map(({ command }) => command.at(-1)),
-    ).toEqual(["$ARTIFACT", "$ARTIFACT", "$ARTIFACT"]);
+    // Aggregate and per-slice queries of the universal copy all read the
+    // registered snapshot.
+    const operands = inspectSignatureSchema
+      .parse(result.value.result)
+      .provenance.map(({ command }) => command.at(-1));
+    expect(operands.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(operands)).toEqual(new Set(["$ARTIFACT"]));
     if (capturedPath === undefined)
       throw new Error("Expected codesign invocation");
     await expect(lstat(dirname(capturedPath))).rejects.toMatchObject({

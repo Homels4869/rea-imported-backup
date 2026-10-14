@@ -119,6 +119,100 @@ it("reports unsigned slices when a universal Mach-O has mixed signatures", async
   }
 });
 
+it.each(["x86_64", "arm64e"])(
+  "reports an unsigned %s slice when the aggregate signature and requirement succeed",
+  async (unsignedArchitecture) => {
+    // codesign reads its default slice for the aggregate queries; an
+    // identity-signed requirement does not cover the other slices.
+    const client = new NativeMacOSProvider(
+      {},
+      signatureRunner({
+        signed: await fixture("codesign-universal-slices/display.txt"),
+        unsigned: await fixture("codesign-universal-slices/slice-unsigned.txt"),
+        entitlements: "",
+        requirement: await fixture(
+          "codesign-universal-slices/requirements.txt",
+        ),
+        unsignedArchitectures: [unsignedArchitecture],
+      }),
+      "darwin",
+    ).createClient(await signatureTarget("arm64e"));
+
+    const execution = await client.execute("inspect_signature", {});
+
+    if (!execution.ok) throw execution.error;
+    expect(execution.value.result).toMatchObject({
+      signed: true,
+      identifier: "com.apple.ls",
+      designated_requirement: 'identifier "com.apple.ls" and anchor apple',
+      limitations: expect.arrayContaining([
+        `Unsigned Mach-O slices: ${unsignedArchitecture}.`,
+      ]),
+      provenance: expect.arrayContaining(
+        ["x86_64", "arm64e", "arm64e.x1"].map((architecture) =>
+          expect.objectContaining({
+            command: expect.arrayContaining(["-a", architecture]),
+            exit: {
+              code: architecture === unsignedArchitecture ? 1 : 0,
+              signal: null,
+            },
+          }),
+        ),
+      ),
+    });
+  },
+);
+
+it("names an unsigned arm64e.x1 slice of a mixed-signature universal Mach-O", async () => {
+  const signed = (await fixture("codesign.txt")).replace(
+    /^Format=.*$/mu,
+    "Format=Mach-O universal (x86_64 arm64e arm64e.x1)",
+  );
+  const client = new NativeMacOSProvider(
+    {},
+    signatureRunner({
+      signed,
+      unsigned: await fixture("dyld-inventory/codesign-unsigned.txt"),
+      entitlements: await fixture("entitlements.xml"),
+      unsignedArchitectures: ["arm64e.x1"],
+    }),
+    "darwin",
+  ).createClient(await signatureTarget("arm64e"));
+
+  const execution = await client.execute("inspect_signature", {});
+
+  if (!execution.ok) throw execution.error;
+  expect(execution.value.result).toMatchObject({
+    signed: true,
+    limitations: expect.arrayContaining(["Unsigned Mach-O slices: arm64e.x1."]),
+  });
+});
+
+it("adds no slice limitation when every universal slice is signed", async () => {
+  const client = new NativeMacOSProvider(
+    {},
+    signatureRunner({
+      signed: await fixture("codesign-universal-slices/display.txt"),
+      unsigned: await fixture("codesign-universal-slices/slice-unsigned.txt"),
+      entitlements: "",
+      requirement: await fixture("codesign-universal-slices/requirements.txt"),
+      unsignedArchitectures: [],
+    }),
+    "darwin",
+  ).createClient(await signatureTarget("arm64e"));
+
+  const execution = await client.execute("inspect_signature", {});
+
+  if (!execution.ok) throw execution.error;
+  expect(execution.value.result).toMatchObject({
+    signed: true,
+    designated_requirement: 'identifier "com.apple.ls" and anchor apple',
+  });
+  expect(execution.value.limitations).not.toContainEqual(
+    expect.stringMatching(/Mach-O slices/u),
+  );
+});
+
 it("rejects nonzero supplemental codesign output that is not an unsigned observation", async () => {
   const signed = await fixture("codesign.txt");
   const entitlements = await fixture("entitlements.xml");
@@ -388,6 +482,9 @@ const signatureRunner = (outputs: {
   readonly signed: string;
   readonly unsigned: string;
   readonly entitlements: string;
+  /** Aggregate `-r-` stdout; without it the aggregate query reports unsigned. */
+  readonly requirement?: string;
+  readonly unsignedArchitectures?: readonly string[];
 }): NativeCommandRunner => ({
   run(
     tool: string,
@@ -396,14 +493,22 @@ const signatureRunner = (outputs: {
   ) {
     const architectureIndex = arguments_.indexOf("-a");
     const architecture =
-      architectureIndex < 0 ? null : arguments_[architectureIndex + 1];
+      architectureIndex < 0
+        ? null
+        : (arguments_[architectureIndex + 1] ?? null);
+    const unsignedArchitectures = outputs.unsignedArchitectures ?? ["x86_64"];
     const response = arguments_.includes("-r-")
-      ? { output: outputs.unsigned, exitCode: 1 }
+      ? outputs.requirement === undefined
+        ? { output: outputs.unsigned, exitCode: 1 }
+        : { output: outputs.requirement, exitCode: 0 }
       : arguments_.includes("--entitlements")
         ? { output: outputs.entitlements, exitCode: 0 }
-        : architecture === "x86_64"
+        : architecture !== null && unsignedArchitectures.includes(architecture)
           ? { output: outputs.unsigned, exitCode: 1 }
           : { output: outputs.signed, exitCode: 0 };
+    const stdout =
+      arguments_.includes("--entitlements") ||
+      (arguments_.includes("-r-") && response.exitCode === 0);
     const capture: NativeCommandCapture = {
       tool,
       executable: `/usr/bin/${tool}`,
@@ -411,8 +516,8 @@ const signatureRunner = (outputs: {
       toolVersion: null,
       versionReason: "fixture",
       arguments: [...arguments_],
-      // Entitlements XML is printed to stdout; diagnostics to stderr.
-      ...(arguments_.includes("--entitlements")
+      // Entitlements XML and requirements print to stdout; diagnostics to stderr.
+      ...(stdout
         ? {
             stdout: response.output,
             stderr: "",

@@ -1,0 +1,30 @@
+Executable=/private/fixture
+Identifier=com.apple.ls
+Format=Mach-O universal (x86_64 arm64e arm64e.x1)
+CodeDirectory v=20400 size=325 flags=0x0(none) hashes=5+2 location=embedded
+Platform identifier=26
+VersionPlatform=1
+VersionMin=720896
+VersionSDK=1769472
+Hash type=sha256 size=32
+CandidateCDHash sha256=45d1613a435c6cb05794cbb585587a5245989943
+CandidateCDHashFull sha256=45d1613a435c6cb05794cbb585587a5245989943ad1999f183d0f165a4750244
+Hash choices=sha256
+CMSDigest=45d1613a435c6cb05794cbb585587a5245989943ad1999f183d0f165a4750244
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=32768
+Executable Segment flags=0x1
+Page size=16384
+CDHash=45d1613a435c6cb05794cbb585587a5245989943
+Signature size=4202
+Authority=macOS Software Signing
+Authority=Apple Code Signing Certification Authority
+Authority=Apple Root CA
+Signed Time=Aug 8, 2026 at 3:31:18 PM
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements count=1 size=60
+Total signatures=1
+Chosen signature=1
