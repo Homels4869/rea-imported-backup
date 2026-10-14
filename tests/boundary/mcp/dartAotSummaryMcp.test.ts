@@ -160,6 +160,7 @@ it("preserves null snapshot facts and pool lower bounds after exhaustion, reject
       snapshot_hash: null,
       snapshot_hash_candidates: [],
       snapshot_hash_sources: 0,
+      snapshot_layout: "vm_isolate_pair",
       sections: [],
     },
     string_pool: {

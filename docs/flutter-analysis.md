@@ -49,8 +49,10 @@ server; older servers keep the complete request after schema discovery.
 
 `inspect_dart_aot` reads one ABI's `libapp.so` in full and reports:
 
-- **Snapshot sections** — the four `_kDart*Snapshot*` symbols located
-  through the ELF **dynamic symbol table** (ELF32 and ELF64, little-endian,
+- **Snapshot sections** — the four legacy `_kDart*Snapshot*` symbols (VM and
+  isolate pairs) or, for toolchains that include Dart's removal of the VM
+  isolate, the single `_kDartSnapshotData` / `_kDartSnapshotText` pair,
+  located through the ELF **dynamic symbol table** (ELF32 and ELF64, little-endian,
   every read bounds-checked), each with file offset, size, and — for data
   sections, which carry the `f5f5dcdc` magic — the parsed header kind and
   length (the stored length excludes the four magic bytes). Data headers
@@ -65,10 +67,11 @@ server; older servers keep the complete request after schema discovery.
   mappings leave affected symbols unresolved and qualify coverage. Dynamic
   hash, symbol and string tables use the same mapping checks.
   A payload without exported snapshot symbols is refused rather
-  than guessed at.
+  than guessed at. `snapshot_layout` reports which layout was found
+  (`vm_isolate_pair` or `single_snapshot`).
 - **The snapshot hash** from the header at the start of each exported data
   symbol. Complete hash coverage requires a valid header from both the VM
-  and isolate; duplicate records inside one symbol cannot stand in for the
+  and isolate (or from the single data symbol in the single-snapshot layout); duplicate records inside one symbol cannot stand in for the
   other's header. Aliased or overlapping data symbols report partial coverage.
 - **A string-pool projection from the isolate data section**: distinct
   `package:` source URIs (the app's own and its dependencies' Dart files —

@@ -72,7 +72,30 @@ const MAX_LIBRARY_PATH_BYTES = 1024;
 const MAX_POOL_URIS = 500;
 const MAX_POOL_TOKENS = 2_000;
 /** A complete AOT image carries exactly one VM and one isolate section. */
-const SYMBOL_PAIR_COUNT = 2;
+/**
+ * Snapshot symbol layouts. Dart removed the separate VM isolate snapshot, so
+ * current toolchains export one data and one text symbol per snapshot instead
+ * of the legacy VM and isolate pairs.
+ */
+const SNAPSHOT_LAYOUTS = [
+  {
+    layout: "vm_isolate_pair",
+    symbols: [
+      "_kDartVmSnapshotData",
+      "_kDartVmSnapshotInstructions",
+      "_kDartIsolateSnapshotData",
+      "_kDartIsolateSnapshotInstructions",
+    ],
+    isolateData: "_kDartIsolateSnapshotData",
+    dataCount: 2,
+  },
+  {
+    layout: "single_snapshot",
+    symbols: ["_kDartSnapshotData", "_kDartSnapshotText"],
+    isolateData: "_kDartSnapshotData",
+    dataCount: 1,
+  },
+] as const;
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 
 /**
@@ -970,12 +993,6 @@ export class FlutterBuildProvider {
     }
     signal?.throwIfAborted();
     const bounded = image.subarray(0, imageLength);
-    const symbolNames = [
-      "_kDartVmSnapshotData",
-      "_kDartVmSnapshotInstructions",
-      "_kDartIsolateSnapshotData",
-      "_kDartIsolateSnapshotInstructions",
-    ];
     const sections: {
       name: string;
       offset: number;
@@ -991,7 +1008,29 @@ export class FlutterBuildProvider {
       header: ReturnType<typeof readSnapshotHeader>;
     }[] = [];
     let isolateData: Buffer | null = null;
-    const inventory = await readElfSymbols(bounded, symbolNames, signal);
+    // Prefer the legacy layout; fall back to the single-snapshot layout only
+    // when none of its symbols are exported.
+    let selectedLayout: (typeof SNAPSHOT_LAYOUTS)[number] = SNAPSHOT_LAYOUTS[0];
+    let inventory = await readElfSymbols(
+      bounded,
+      selectedLayout.symbols,
+      signal,
+    );
+    const legacyFailures = inventory.failures;
+    if (inventory.symbols.length === 0) {
+      const candidate = SNAPSHOT_LAYOUTS[1];
+      const fallback = await readElfSymbols(bounded, candidate.symbols, signal);
+      if (fallback.symbols.length > 0) {
+        selectedLayout = candidate;
+        inventory = fallback;
+      } else {
+        inventory = {
+          ...inventory,
+          failures: [...legacyFailures, ...fallback.failures],
+        };
+      }
+    }
+    const symbolNames = selectedLayout.symbols;
     for (const symbol of inventory.symbols) {
       const name = symbol.name;
       const header = name.endsWith("Data")
@@ -1009,7 +1048,7 @@ export class FlutterBuildProvider {
         header_length: header?.headerLength ?? null,
       });
       if (header !== null) dataHeaders.push({ ...symbol, header });
-      if (name === "_kDartIsolateSnapshotData")
+      if (name === selectedLayout.isolateData)
         isolateData = image.subarray(
           symbol.offset,
           symbol.offset + symbol.size,
@@ -1047,7 +1086,7 @@ export class FlutterBuildProvider {
         new AnalysisUnsupportedTargetError(
           "inspect_dart_aot",
           path,
-          `No recognizable Dart snapshot symbols were found: ${inventory.failures.map((failure) => failure.reason).join("; ")}`,
+          `No recognizable Dart snapshot symbols were found (expected ${SNAPSHOT_LAYOUTS.map((entry) => `${entry.layout}: ${entry.symbols.join(", ")}`).join(" or ")}): ${inventory.failures.map((failure) => failure.reason).join("; ")}`,
         ),
       );
     const pool = await projectStringPool(isolateData, signal);
@@ -1056,10 +1095,10 @@ export class FlutterBuildProvider {
       aliasedDataSymbols ||
       overlappingDataSymbols ||
       sections.length < symbolNames.length ||
-      dataHeaders.length !== SYMBOL_PAIR_COUNT ||
+      dataHeaders.length !== selectedLayout.dataCount ||
       dataHeaders.some((section) => !section.header.complete) ||
       hashScan.candidates.length !== 1 ||
-      hashScan.sources !== SYMBOL_PAIR_COUNT;
+      hashScan.sources !== selectedLayout.dataCount;
     const poolPartial =
       isolateData === null ||
       pool.collectionCapped ||
@@ -1079,6 +1118,7 @@ export class FlutterBuildProvider {
               hashScan.candidates.length === 1 ? hashScan.candidates[0]! : null,
             snapshot_hash_candidates: [...hashScan.candidates],
             snapshot_hash_sources: hashScan.sources,
+            snapshot_layout: selectedLayout.layout,
             sections,
           },
           string_pool: {
@@ -1100,14 +1140,14 @@ export class FlutterBuildProvider {
           limitations: [
             "The APK is read through an owned read-only snapshot; concurrent changes to the original cannot mix into this observation",
             "Snapshot sections are located through the ELF dynamic symbol table; a payload without exported snapshot symbols is refused rather than guessed",
-            "Snapshot hash sources are the headers at the start of the VM and isolate data symbols; complete decoding supports kind 3 (the Dart 2.14 FullAOT layout), a valid hash and a declared length that fits its symbol, including the four magic bytes; other kind values remain observed with partial coverage",
+            "Snapshot hash sources are the headers at the start of each exported data symbol (VM and isolate, or the single snapshot data symbol in current Dart toolchains); complete decoding supports kind 3 (the Dart 2.14 FullAOT layout), a valid hash and a declared length that fits its symbol, including the four magic bytes; other kind values remain observed with partial coverage",
             "String-pool entries are byte-pattern observations from the isolate data section, not deserialized cluster semantics; typed class and function recovery needs an SDK-specific parser",
             "class_like_tokens are identifier-shaped runs and include incidental matches",
             "string-pool counts are lower bounds: collection stops at twice each projection bound, and any value beyond that is counted only through the capped flag",
             ...inventory.failures.map((failure) => failure.reason),
             ...(sections.length < symbolNames.length
               ? [
-                  `Only ${String(sections.length)} of 4 snapshot symbols were present`,
+                  `Only ${String(sections.length)} of ${String(symbolNames.length)} snapshot symbols were present`,
                 ]
               : []),
             ...(aliasedDataSymbols

@@ -144,6 +144,8 @@ export const flutterResultSchemas = {
       snapshot_hash_candidates: z.array(z.string().regex(/^[0-9a-f]{32}$/u)),
       /** Distinct exported data headers with a valid hash at the header's fixed offset. */
       snapshot_hash_sources: z.number().int().nonnegative(),
+      /** Symbol layout found: legacy VM/isolate pair or single snapshot. */
+      snapshot_layout: z.enum(["vm_isolate_pair", "single_snapshot"]),
       /** Snapshot symbols read from the dynamic symbol table. */
       sections: z.array(
         z.strictObject({

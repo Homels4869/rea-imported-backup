@@ -97,6 +97,31 @@ const conflictingHashImage = (): Buffer => {
   ]);
 };
 
+/** Current Dart toolchains export one data and one text snapshot symbol. */
+const singleSnapshotImage = (symbols: readonly string[]): Buffer => {
+  const [data, text] = symbols;
+  const elf = buildElf64Image([
+    ...(data === undefined ? [] : [{ name: data, value: 0x1000, size: 0x600 }]),
+    ...(text === undefined ? [] : [{ name: text, value: 0x1800, size: 16 }]),
+  ]);
+  const pool = Buffer.from(
+    "package:animations/src/fade_scale_transition.dart\x00dart:_http\x00",
+  );
+  const section = Buffer.concat([
+    snapshotSection(REFERENCE_HASH),
+    Buffer.from([0]),
+    pool,
+  ]);
+  return Buffer.concat([
+    elf,
+    Buffer.alloc(0x1000 - elf.length),
+    section,
+    Buffer.alloc(0x600 - section.length),
+    Buffer.alloc(0x800 - 0x600),
+    Buffer.alloc(16),
+  ]);
+};
+
 const analyzeImage = async (bytes: Buffer, operation: FlutterOperation) => {
   const path = await buildApk("image.apk", [
     { path: "lib/arm64-v8a/libapp.so", bytes },
@@ -509,6 +534,7 @@ it("inspects a full synthetic AOT image end to end", async () => {
       snapshot_hash: string | null;
       snapshot_hash_candidates: string[];
       snapshot_hash_sources: number;
+      snapshot_layout: string;
       sections: { name: string; magic_valid: boolean }[];
     };
     string_pool: {
@@ -521,6 +547,7 @@ it("inspects a full synthetic AOT image end to end", async () => {
   expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
   expect(value.libapp.snapshot_hash_candidates).toEqual([REFERENCE_HASH]);
   expect(value.libapp.snapshot_hash_sources).toBe(2);
+  expect(value.libapp.snapshot_layout).toBe("vm_isolate_pair");
   expect(value.libapp.sections.map((section) => section.name)).toEqual([
     "_kDartVmSnapshotData",
     "_kDartVmSnapshotInstructions",
@@ -537,6 +564,83 @@ it("inspects a full synthetic AOT image end to end", async () => {
   // All four symbols present, both data magics valid, pool under budget:
   // the honest answer for a complete payload is complete coverage.
   expect(value.coverage).toBe("complete");
+});
+
+it("inspects the single-snapshot symbol layout of current Dart toolchains", async () => {
+  const apk = await buildApk("singlesnapshot.apk", [
+    {
+      path: "lib/arm64-v8a/libapp.so",
+      bytes: singleSnapshotImage(["_kDartSnapshotData", "_kDartSnapshotText"]),
+    },
+  ]);
+  const result = await new FlutterBuildProvider().execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = result.value.result as {
+    coverage: string;
+    libapp: {
+      coverage: string;
+      snapshot_hash: string | null;
+      snapshot_hash_sources: number;
+      snapshot_layout: string;
+      sections: { name: string; magic_valid: boolean }[];
+    };
+    string_pool: { package_uri_count_at_least: number };
+  };
+  expect(value.libapp.snapshot_layout).toBe("single_snapshot");
+  expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+  expect(value.libapp.snapshot_hash_sources).toBe(1);
+  expect(value.libapp.sections.map((section) => section.name)).toEqual([
+    "_kDartSnapshotData",
+    "_kDartSnapshotText",
+  ]);
+  expect(value.libapp.sections[0]?.magic_valid).toBe(true);
+  expect(value.string_pool.package_uri_count_at_least).toBe(1);
+  expect(value.libapp.coverage).toBe("complete");
+  expect(value.coverage).toBe("complete");
+});
+
+it("reports a single-snapshot layout missing its text symbol as partial", async () => {
+  const apk = await buildApk("singledataonly.apk", [
+    {
+      path: "lib/arm64-v8a/libapp.so",
+      bytes: singleSnapshotImage(["_kDartSnapshotData"]),
+    },
+  ]);
+  const result = await new FlutterBuildProvider().execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = result.value.result as {
+    coverage: string;
+    libapp: { snapshot_layout: string; snapshot_hash: string | null };
+  };
+  expect(value.libapp.snapshot_layout).toBe("single_snapshot");
+  expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+  expect(value.coverage).toBe("partial");
+});
+
+it("names both expected symbol layouts when no snapshot symbols are exported", async () => {
+  const apk = await buildApk("nosnapshotsymbols.apk", [
+    {
+      path: "lib/arm64-v8a/libapp.so",
+      bytes: buildElf64Image([{ name: "_kDartOther", value: 0x1000, size: 8 }]),
+    },
+  ]);
+  const result = await new FlutterBuildProvider().execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  expect(result.ok).toBe(false);
+  if (result.ok) return;
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    code: "unsupported_target",
+  });
+  expect(result.error.message).toContain("_kDartVmSnapshotData");
+  expect(result.error.message).toContain("_kDartSnapshotData");
 });
 
 it("reports aliased snapshot data symbols as partial coverage", async () => {

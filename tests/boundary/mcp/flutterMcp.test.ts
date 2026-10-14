@@ -36,6 +36,7 @@ const inspectExecution = () =>
         snapshot_hash: SNAPSHOT_HASH,
         snapshot_hash_candidates: [SNAPSHOT_HASH],
         snapshot_hash_sources: 2,
+        snapshot_layout: "vm_isolate_pair",
         sections: [
           {
             name: "_kDartVmSnapshotData",
