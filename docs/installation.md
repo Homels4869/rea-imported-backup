@@ -480,8 +480,9 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | WorkBuddy          | `workbuddy`      |
 | ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
+| FreeBuff           | `freebuff`       |
 
-`dsh`, `kimi`, and `workbuddy` require a release containing them. The registry
+`dsh`, `kimi`, `workbuddy`, and `freebuff` require a release containing them. The registry
 check above does not cover them.
 
 See [client configuration and troubleshooting](client-configuration.md) for

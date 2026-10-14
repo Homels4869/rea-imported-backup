@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import { readClientRegistrationInspections } from "./ClientRegistrationStatus.js";
+import { supportedClients } from "./SupportedClients.js";
 import { existingSkillDestinations } from "./SetupSkill.js";
 import type { SetupAction } from "./SetupTypes.js";
 import type { Result } from "../domain/result.js";
@@ -57,6 +58,10 @@ export const existingMaintenanceScope = async (
     entryPoint,
     {
       environment,
+      // A registration REA wrote must be refreshed even when the product
+      // profile is absent, so maintenance reads ownership evidence instead of
+      // product applicability. Owned rows stay the only ones selected below.
+      evidence: "ownership",
       ...(resources === undefined ? {} : { resources }),
     },
   );
@@ -70,6 +75,32 @@ export const existingMaintenanceScope = async (
       continue;
     clients.push(registration.client);
   }
+  // One shared file is one maintenance decision: a shared-registration client
+  // defers to another selected client covering the same file, so the owned
+  // row is refreshed once through the applicable product instead of twice
+  // through two views of the same registration.
+  const shared = new Map(
+    supportedClients(home, process.platform, environment).map((client) => [
+      client.name,
+      client.sharedRegistration === true,
+    ]),
+  );
+  const covered = new Set(
+    registrations
+      .filter(
+        ({ status }) =>
+          clients.includes(status.client) && shared.get(status.client) !== true,
+      )
+      .map(({ status }) => status.config_path),
+  );
+  const deduped = clients.filter(
+    (client) =>
+      shared.get(client) !== true ||
+      !registrations.some(
+        ({ status }) =>
+          status.client === client && covered.has(status.config_path),
+      ),
+  );
   const skillDestinations = await existingSkillDestinations(
     home,
     environment,
@@ -77,7 +108,7 @@ export const existingMaintenanceScope = async (
     resources,
   );
   return {
-    clients,
+    clients: deduped,
     skill: skillDestinations.length > 0,
     skillDestinations,
   };
