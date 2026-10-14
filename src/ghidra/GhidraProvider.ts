@@ -179,8 +179,10 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         reason: `Ghidra v1 imports executable targets, not ${target.kind} targets.`,
         diagnostics,
       };
-    if (hostPlatform === "win32")
-      return inspectWindowsP0TargetSupport(target, diagnostics);
+    if (hostPlatform === "win32") {
+      const windowsSupport = inspectWindowsP0TargetSupport(target, diagnostics);
+      if (windowsSupport !== null) return windowsSupport;
+    }
     const mipsReason =
       isGhidraPspTarget(target) &&
       (hostPlatform !== "linux" ||
@@ -345,19 +347,26 @@ export class GhidraProvider implements AnalysisProviderCandidate {
 const providerFailureText = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+/**
+ * Apply the Windows-only admission rules. PE images carry role and managed
+ * facts that this host checks itself; ELF and thin Mach-O images return null so
+ * the shared processor and slice checks decide. The raw 6502 lane and every
+ * other format are decided here.
+ */
 const inspectWindowsP0TargetSupport = (
   target: BinaryTarget,
   diagnostics: Readonly<Record<string, JsonValue>>,
-): ProviderTargetSupport => {
+): ProviderTargetSupport | null => {
   // The raw 6502 lane uses the same immutable snapshot and native ownership boundary.
   if (target.format === "raw-binary" && target.architecture === "6502")
     return { status: "supported", code: null, reason: null, diagnostics };
+  if (target.format === "elf" || target.format === "mach-o") return null;
   if (target.format !== "pe")
     return {
       status: "unsupported",
       code: "target_format_unsupported",
       reason:
-        "Windows Ghidra P0 accepts native PE and explicitly selected raw 6502 targets only.",
+        "Windows Ghidra P0 accepts native PE, ELF, thin Mach-O, and explicitly selected raw 6502 targets; DOS, other raw-binary, and universal Mach-O images are unsupported on this host.",
       diagnostics,
     };
   if (target.architecture !== "x86" && target.architecture !== "x86_64")

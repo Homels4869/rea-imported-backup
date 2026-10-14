@@ -515,12 +515,6 @@ describe("Ghidra Windows platform support", () => {
       code: "managed_target_unsupported",
     });
     expect(
-      ghidra.inspectTargetSupport(executableTarget("elf", "x86_64")),
-    ).toMatchObject({
-      status: "unsupported",
-      code: "target_format_unsupported",
-    });
-    expect(
       ghidra.inspectTargetSupport(executableTarget("pe", "arm64")),
     ).toMatchObject({
       status: "unsupported",
@@ -621,10 +615,7 @@ describe("Windows Ghidra native failure diagnostics", () => {
       });
       expect(
         ghidra.inspectTargetSupport(executableTarget("elf", "x86_64")),
-      ).toMatchObject({
-        status: "unsupported",
-        code: "target_format_unsupported",
-      });
+      ).toMatchObject({ status: "supported" });
       expect(
         ghidra.inspectTargetSupport(executableTarget("pe", "arm64")),
       ).toMatchObject({
@@ -646,6 +637,40 @@ describe("Windows Ghidra native failure diagnostics", () => {
       expect(load).toHaveBeenCalledTimes(3);
     },
   );
+});
+
+describe("Ghidra Windows ELF and Mach-O admission", () => {
+  it("admits ELF and thin Mach-O images through the shared processor checks", () => {
+    const ghidra = provider(installationHost("win32"));
+    for (const architecture of ["x86_64", "arm64"] as const)
+      expect(
+        ghidra.inspectTargetSupport(executableTarget("elf", architecture)),
+      ).toMatchObject({
+        status: "supported",
+        diagnostics: { host_platform: "win32", target_format: "elf" },
+      });
+    expect(
+      ghidra.inspectTargetSupport(executableTarget("mach-o", "arm64")),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("keeps universal Mach-O images outside the Windows boundary", () => {
+    const ghidra = provider(installationHost("win32"));
+    expect(
+      ghidra.inspectTargetSupport({
+        path: "/tmp/fixture",
+        sha256: "a".repeat(64),
+        kind: "executable",
+        format: "mach-o-universal",
+        architecture: "arm64",
+        availableArchitectures: ["x86_64", "arm64"],
+        universalSlice: { offset: 0, size: 32 },
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "target_format_unsupported",
+    });
+  });
 });
 
 describe("Ghidra Windows PE fixture admission", () => {
