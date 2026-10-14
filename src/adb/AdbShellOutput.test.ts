@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAmStartOutput } from "./AdbShellOutput.js";
+import { parseAmStartOutput, parseKeyguardShowing } from "./AdbShellOutput.js";
 
 const starting =
   "Starting: Intent { act=android.intent.action.MAIN cmp=com.example/.Main }";
@@ -71,5 +71,17 @@ describe("parseAmStartOutput", () => {
       startedActivity: null,
       reportedStatus: "ok",
     });
+  });
+});
+
+describe("parseKeyguardShowing", () => {
+  it("reads the declared keyguard state and leaves an undeclared one unknown", () => {
+    expect(
+      parseKeyguardShowing("Display: 0\r\n    isKeyguardShowing=true\r\n"),
+    ).toBe(true);
+    expect(parseKeyguardShowing("    isKeyguardShowing=false\n")).toBe(false);
+    expect(
+      parseKeyguardShowing("mCurrentFocus=Window{1 u0 com.example/.Main}\n"),
+    ).toBeNull();
   });
 });

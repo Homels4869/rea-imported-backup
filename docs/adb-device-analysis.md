@@ -94,7 +94,7 @@ existing analysis families directly, for example
 | `list_adb_directory`    | read               | NUL-framed immediate children, including hidden entries: kinds, permissions, owner, group, sizes, symlink targets                                                                                                                     |
 | `pull_adb_package`      | read               | Complete split APK set from `pm path`, each file digested                                                                                                                                                                             |
 | `pull_adb_file`         | read               | One absolute device path pulled and digested                                                                                                                                                                                          |
-| `capture_adb_screen`    | read               | One `screencap -p` frame (exec-out, no device-side file) with dimensions                                                                                                                                                              |
+| `capture_adb_screen`    | read               | One `screencap -p` frame (exec-out, no device-side file) with dimensions and the keyguard state read right after it; `include_artifact` also embeds the PNG as a base64 artifact for recomputable visual comparison                   |
 | `collect_adb_bugreport` | read               | Device-generated bugreport zip, digested                                                                                                                                                                                              |
 | `push_adb_file`         | **mutates device** | One local file to a device path (e.g. pushing tools into `/data/local/tmp`); checks for existing targets and refuses them without explicit overwrite (the check is not atomic); compares digests when device `sha256sum` is available |
 | `install_adb_package`   | **mutates device** | Local APK via `adb install [-r]`; preserves its Success/Failure verdict, records `replace_requested`, and leaves actual replacement `null` because prior package state is not observed                                                |
@@ -152,6 +152,32 @@ device first. The install verdict and host APK digest remain available.
   device's `Failure [...]` reason verbatim.
 - **Producer identity stays attached.** Every result embeds the producing
   adb client (`binary_path`, `path_source`, `version`, `installed_path`).
+
+## Capture an unattended device
+
+A device left alone during a long capture session turns its screen off and,
+on many builds, locks about 30 seconds later. `screencap` still returns a
+valid PNG: the lock screen. `capture_adb_screen` therefore reads
+`isKeyguardShowing` from `dumpsys window displays` right after the frame and
+reports it as `keyguard_showing` (`true`, `false`, or `null` when the window
+manager does not declare it). A visual claim whose ADB source was captured
+with the keyguard showing stays `unknown` instead of comparing the lock screen
+with the reconstruction; unlock the device and recapture.
+
+REA does not wake, unlock, or otherwise interact with the device while
+capturing. Keeping the screen awake is the caller's responsibility and stays
+within the caller's authorization: for example, a periodic harmless key event
+sent only while the expected application is focused (check with
+`inspect_adb_window`). Do not change the device's screen-timeout or lock
+settings, and never type a PIN or password on the user's behalf.
+
+To compare a web reconstruction with an ADB capture pixel for pixel, render
+the page at the device's own pixel size. Read the size with `inspect_adb_display`,
+launch the browser with `--force-device-scale-factor` set to the device
+density divided by 160 (adjusted until the screenshot dimensions match
+exactly), emulate the system bars with safe-area insets, and declare the
+status and navigation bars as `mask` regions with a rationale. A dimension
+mismatch fails the claim; it is never rescaled.
 
 ## Resource and lifecycle limits
 

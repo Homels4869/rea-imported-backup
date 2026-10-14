@@ -191,6 +191,18 @@ export const parseWindowFocusOutput = (
   return { focusedWindow, focusedApp };
 };
 
+/**
+ * Parse the keyguard declaration from `dumpsys window displays`.
+ * Returns null when the window manager did not declare it.
+ */
+export const parseKeyguardShowing = (stdout: string): boolean | null => {
+  for (const line of stdout.split(/\r?\n/u)) {
+    const match = /^isKeyguardShowing=(true|false)$/u.exec(line.trim());
+    if (match !== null) return match[1] === "true";
+  }
+  return null;
+};
+
 export interface AdbPackageDetails {
   readonly versionName: string | null;
   readonly versionCode: number | null;

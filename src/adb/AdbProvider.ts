@@ -28,6 +28,7 @@ import type {
   AdbRequest,
 } from "../domain/adb/adbDeviceAnalysis.js";
 import { adbResultSchemas } from "../domain/adb/adbDeviceAnalysis.js";
+import { createWebScreenshotArtifact } from "../domain/webScreenshot.js";
 import {
   AnalysisArtifactChangedError,
   AnalysisCancelledError,
@@ -79,6 +80,7 @@ import {
   parseResolveActivityOutput,
   parseServiceListOutput,
   parseSettingsGetOutput,
+  parseKeyguardShowing,
   parseWindowFocusOutput,
   parseWmDensityOutput,
   parseWmSizeOutput,
@@ -2194,7 +2196,11 @@ export class AdbProvider {
     selection: AdbBinarySelection,
     client: ClientIdentity,
     provider: ProviderIdentity,
-    input: { readonly serial: string; readonly output_directory: string },
+    input: {
+      readonly serial: string;
+      readonly output_directory: string;
+      readonly include_artifact: boolean;
+    },
     signal: AbortSignal | undefined,
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
     const directory = await prepareOutputDirectory(
@@ -2235,6 +2241,24 @@ export class AdbProvider {
     const sha256 = createHash("sha256")
       .update(captured.value.stdout)
       .digest("hex");
+    // A device that locked while unattended still returns a valid PNG: the lock
+    // screen. Read the keyguard right after the frame so the capture says so.
+    const windows = await runAdb(
+      operation,
+      input.serial,
+      selection.binary,
+      adbArguments(input.serial, ["shell", "dumpsys", "window", "displays"]),
+      {
+        timeoutMs: SHELL_TIMEOUT_MS,
+        maxOutputBytes: DUMPSYS_WINDOW_MAX_OUTPUT_BYTES,
+      },
+      signal,
+    );
+    if (!windows.ok && windows.error instanceof AnalysisCancelledError)
+      return windows;
+    const keyguardShowing = windows.ok
+      ? parseKeyguardShowing(windows.value.stdout)
+      : null;
     return ok(
       createAnalysisExecution(
         {
@@ -2245,11 +2269,20 @@ export class AdbProvider {
           sha256,
           width: dimensions.width,
           height: dimensions.height,
+          ...(input.include_artifact
+            ? { artifact: createWebScreenshotArtifact(captured.value.stdout) }
+            : {}),
+          keyguard_showing: keyguardShowing,
         },
         provider,
         {
           limitations: [
             "The capture is one frame at read time; no recording or interaction occurred",
+            keyguardShowing === true
+              ? "The keyguard was showing right after the frame; the PNG likely shows the lock screen, not the foreground app"
+              : keyguardShowing === false
+                ? "The keyguard was not showing when read right after the frame; a lock transition during the frame is not excluded"
+                : "The keyguard state was not declared by `dumpsys window displays`; whether the frame shows the lock screen is unknown",
           ],
         },
       ),
