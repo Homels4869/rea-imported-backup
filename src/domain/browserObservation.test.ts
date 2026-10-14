@@ -8,6 +8,7 @@ import {
   sanitizeEndpointCandidate,
   sanitizeBrowserUrl,
 } from "./browserObservation.js";
+import { parseRecordedTransportUrl } from "./recordedTransportUrl.js";
 
 describe("browser observation contracts", () => {
   it("normalizes exact HTTP origins without accepting broader URL scopes", () => {
@@ -98,6 +99,107 @@ describe("browser observation contracts", () => {
         "ws://127.0.0.1:9222/devtools/browser/0b1c-socket-id",
       ).success,
     ).toBe(false);
+  });
+});
+
+describe("relative transport URL credentials and retention", () => {
+  it("removes userinfo from network references without changing recorded separators or diagnostics", () => {
+    const cases = [
+      [
+        "//reader:transport-secret@api.example.test/a/../items?x=a+b&x=two#part",
+        "//api.example.test/a/../items?x=a+b&x=two#part",
+      ],
+      [
+        String.raw`\\reader:transport-secret@api.example.test\a\..\items?x=a+b&x=two#part`,
+        String.raw`\\api.example.test\a\..\items?x=a+b&x=two#part`,
+      ],
+      [
+        String.raw`/\reader:transport-secret@api.example.test\items?x=1#part`,
+        String.raw`/\api.example.test\items?x=1#part`,
+      ],
+      [
+        String.raw`\/reader:transport-secret@api.example.test\items?x=1#part`,
+        String.raw`\/api.example.test\items?x=1#part`,
+      ],
+      [
+        " \t////reader:transport-secret@api.example.test/items?x=1#part",
+        " \t////api.example.test/items?x=1#part",
+      ],
+      [
+        "//reader:transport-secret@[invalid/items?x=1#part",
+        "//[invalid/items?x=1#part",
+      ],
+      [
+        "https://reader:transport-secret@[invalid/items?x=1#part",
+        "https://[invalid/items?x=1#part",
+      ],
+    ] as const;
+    for (const [value, expected] of cases) {
+      expect(parseRecordedTransportUrl(value)).toMatchObject({
+        origin: null,
+        path: null,
+        credentials: {
+          start: value.indexOf("reader"),
+          end: value.indexOf("@") + 1,
+        },
+      });
+      expect(sanitizeBrowserUrl(value)).toEqual({
+        url: expected,
+        origin: null,
+        query_parameter_names: [],
+        redacted: true,
+      });
+      expect(sanitizeEndpointCandidate(value)).toBe(expected);
+    }
+  });
+
+  it("redacts ambiguous relative userinfo without publishing a synthetic base or origin", () => {
+    const value =
+      "//rea\tder:transport-\nsecret@api.example.test/a/../items?x=a+b&x=two#part";
+    expect(parseRecordedTransportUrl(value)).toMatchObject({
+      origin: null,
+      path: null,
+      credentials: "ambiguous",
+    });
+    expect(sanitizeBrowserUrl(value)).toEqual({
+      url: "//api.example.test/items?x=a+b&x=two#part",
+      origin: null,
+      query_parameter_names: [],
+      redacted: true,
+    });
+    expect(
+      parseRecordedTransportUrl(
+        "https:reader:transport-secret@api.example.test/items",
+      ),
+    ).toEqual({
+      origin: "https://api.example.test",
+      path: null,
+      credentials: "ambiguous",
+    });
+  });
+
+  it("keeps credential-free references and userinfo-like path data unchanged", () => {
+    for (const value of [
+      String.raw`\reader:transport-secret@api.example.test\items?x=1#part`,
+      String.raw`.\reader:transport-secret@api.example.test\items?x=1#part`,
+      String.raw`..\reader:transport-secret@api.example.test\items?x=1#part`,
+      String.raw`\\api.example.test\items?x=a+b&x=two#part`,
+      String.raw`/\api.example.test\items?x=a+b&x=two#part`,
+      String.raw`\\api.example.test\reader:transport-secret@literal?x=1#part`,
+      "//api.example.test/items?next=reader:transport-secret@literal#part",
+    ]) {
+      expect(parseRecordedTransportUrl(value)).toMatchObject({
+        origin: null,
+        path: null,
+        credentials: null,
+      });
+      expect(sanitizeBrowserUrl(value)).toEqual({
+        url: value,
+        origin: null,
+        query_parameter_names: [],
+        redacted: false,
+      });
+    }
   });
 });
 

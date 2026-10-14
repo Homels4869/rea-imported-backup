@@ -72,7 +72,7 @@ it("reports file progress and honors cancellation before the next source", async
   expect(progress[0]).not.toBe(progress[1]);
 });
 
-it("preserves graph commitments and export shapes when consuming file-local IR", async () => {
+it("preserves graph commitments, endpoint certainty and export shapes when consuming file-local IR", async () => {
   const root = await fixtureDirectory();
   await writeFile(
     join(root, "exports.mjs"),
@@ -82,6 +82,21 @@ it("preserves graph commitments and export shapes when consuming file-local IR",
     export function create(value) { return { value, nested: { enabled: true } }; }
     export function configured(condition) { return { values: [1, null, undefined], choice: condition ? 1 : 2, ...external }; }
     function unexported() { return "private"; }
+    client.get("passwordControl");
+    fetch("login");
+    client.get("login");
+    client.get("/api/profile");
+    client.get("?page=2&tag=a&tag=b#section");
+    client.get("#section");
+    client.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
+    client.get(${JSON.stringify(String.raw`..\users?tag=a&tag=b#part`)});
+    client.get(${JSON.stringify(String.raw`\api\users`)});
+    client.get(${JSON.stringify("ht\ttps://api.example.test/controls?q=1#part")});
+    client.get(".?q=1#dot");
+    client.get("%2e%2e#parent");
+    new Map().get("?lookup");
+    new Map().get("#lookup");
+    new Map().get(${JSON.stringify(String.raw`\lookup`)});
   `,
   );
   const snapshot = await scanCanonicalArtifactInventory(root, {});
@@ -98,6 +113,7 @@ it("preserves graph commitments and export shapes when consuming file-local IR",
     expect(buildJavaScriptArtifactGraph(snapshot, files, compact)).toEqual(
       graph,
     );
+    assertEndpointInterpretations(graph);
     const semantic = projection.finish(snapshot.manifest.root_sha256, graph);
     expect(semantic).toEqual(
       buildJavaScriptSemanticGraph({
@@ -194,6 +210,87 @@ it("preserves graph commitments and export shapes when consuming file-local IR",
     await reader.close();
   }
 });
+
+const assertEndpointInterpretations = (
+  graph: ReturnType<typeof buildJavaScriptArtifactGraph>,
+): void => {
+  const endpointObservations = graph.nodes
+    .filter(({ kind }) => kind === "endpoint")
+    .flatMap(({ observations }) => observations);
+  expect(
+    endpointObservations.some(
+      ({ properties }) =>
+        properties.value === "?lookup" ||
+        properties.value === "#lookup" ||
+        properties.value === String.raw`\lookup`,
+    ),
+  ).toBe(false);
+  const candidates = endpointObservations.filter(
+    ({ properties }) => properties.interpretation === "candidate",
+  );
+  expect(candidates.map(({ properties }) => properties.value).sort()).toEqual([
+    "login",
+    "passwordControl",
+  ]);
+  for (const candidate of candidates) {
+    expect(candidate.evidence).toMatchObject({
+      authority: "static-relationship-inference",
+      state: "inferred",
+      confidence: "low",
+      limitations: expect.arrayContaining([
+        expect.stringContaining("does not establish a network call"),
+      ]),
+    });
+  }
+  expect(
+    endpointObservations
+      .filter(({ properties }) => properties.interpretation === undefined)
+      .map(({ properties, evidence }) => ({
+        value: properties.value,
+        state: evidence.state,
+        confidence: evidence.confidence,
+      })),
+  ).toEqual(
+    expect.arrayContaining([
+      { value: "login", state: "observed", confidence: "exact" },
+      { value: "/api/profile", state: "observed", confidence: "exact" },
+      {
+        value: "?page=2&tag=a&tag=b#section",
+        state: "observed",
+        confidence: "exact",
+      },
+      { value: "#section", state: "observed", confidence: "exact" },
+      { value: String.raw`\api\users`, state: "observed", confidence: "exact" },
+      {
+        value: "ht\ttps://api.example.test/controls?q=1#part",
+        state: "observed",
+        confidence: "exact",
+      },
+      { value: ".?q=1#dot", state: "observed", confidence: "exact" },
+      { value: "%2e%2e#parent", state: "observed", confidence: "exact" },
+      {
+        value: String.raw`..\users?tag=a&tag=b#part`,
+        state: "observed",
+        confidence: "exact",
+      },
+      {
+        value: "https:api.example.test/users?q=1&tag=a&tag=b#part",
+        state: "observed",
+        confidence: "exact",
+      },
+    ]),
+  );
+  const candidateEdges = graph.edges.filter(
+    ({ properties }) => properties.interpretation === "candidate",
+  );
+  expect(candidateEdges).toHaveLength(2);
+  expect(
+    candidateEdges.every(
+      ({ evidence }) =>
+        evidence.state === "inferred" && evidence.confidence === "low",
+    ),
+  ).toBe(true);
+};
 
 const rejectInvalidTransfer = async (
   wirePath: string,

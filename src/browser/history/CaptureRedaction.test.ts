@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { CaptureRedaction } from "./CaptureRedaction.js";
+import { parseRecordedTransportUrl } from "../../domain/recordedTransportUrl.js";
 
 it.each([
   {
@@ -50,9 +51,6 @@ it.each([
   "https://\n/user:password@example.test/path",
   "https://\r/user:password@example.test/path",
   "ht\ttps://user:password@example.test/path",
-  "\\\\user:password@example.test/path",
-  "/\\user:password@example.test/path",
-  "\\/user:password@example.test/path",
   "/\t/user:password@example.test/path",
 ])("excludes credentials whose raw URL span is ambiguous: %s", (value) => {
   const redactor = new CaptureRedaction([]);
@@ -62,6 +60,36 @@ it.each([
   ]);
   expect(new CaptureRedaction([]).text(value, "/_extension")).toBe(value);
 });
+
+it.each([
+  [
+    String.raw`\\user:password@example.test/path`,
+    String.raw`\\example.test/path`,
+  ],
+  [
+    String.raw`/\user:password@example.test/path`,
+    String.raw`/\example.test/path`,
+  ],
+  [
+    String.raw`\/user:password@example.test/path`,
+    String.raw`\/example.test/path`,
+  ],
+])(
+  "excludes the verified relative userinfo span while preserving its spelling: %s",
+  (value, expected) => {
+    expect(parseRecordedTransportUrl(value)).toEqual({
+      origin: null,
+      path: null,
+      credentials: { start: 2, end: 16 },
+    });
+    const redactor = new CaptureRedaction([]);
+    expect(redactor.text(value, "/request/url", true)).toBe(expected);
+    expect(redactor.redactions).toEqual([
+      { pointer: "/request/url", reason: "transport-credential" },
+    ]);
+    expect(new CaptureRedaction([]).text(value, "/_extension")).toBe(value);
+  },
+);
 
 it("uses non-special URL authority rules to remove the complete userinfo span", () => {
   const value = "custom://user:secret@part\\more:password@host/path";

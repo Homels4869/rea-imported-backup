@@ -73,6 +73,17 @@ const positionPrecedes = (
       left.declaratorIndex >= 0 &&
       left.declaratorIndex < right.declaratorIndex));
 
+/** Instance field values run on construction; their computed keys run eagerly. */
+const isDeferredClassFieldValue = (
+  node: t.Node,
+  child: t.Node | undefined,
+): boolean =>
+  (t.isClassProperty(node) ||
+    t.isClassPrivateProperty(node) ||
+    t.isClassAccessorProperty(node)) &&
+  !node.static &&
+  node.value === child;
+
 /** Order effects only in a non-repeating top-level activation. */
 export const semanticTopLevelEffectFollowsCapture = (
   capture: t.Node,
@@ -85,14 +96,7 @@ export const semanticTopLevelEffectFollowsCapture = (
     let child: t.Node | undefined;
     while (node !== undefined) {
       if (t.isFunction(node) || t.isLoop(node)) return null;
-      if (
-        (t.isClassProperty(node) ||
-          t.isClassPrivateProperty(node) ||
-          t.isClassAccessorProperty(node)) &&
-        !node.static &&
-        node.value === child
-      )
-        return null;
+      if (isDeferredClassFieldValue(node, child)) return null;
       if (t.isVariableDeclarator(node)) declarator = node;
       if (selected === null && t.isStatement(node))
         selected = statementPosition(node, parents, declarator);
@@ -105,6 +109,7 @@ export const semanticTopLevelEffectFollowsCapture = (
   const before = position(capture);
   const after = position(effect);
   if (before === null || after === null) return false;
+  if (invocationInputPrecedesEffect(capture, effect, parents)) return true;
   if (positionPrecedes(before, after)) return true;
   if (
     before.body !== after.body ||
@@ -113,6 +118,36 @@ export const semanticTopLevelEffectFollowsCapture = (
   )
     return false;
   return expressionEvaluationPrecedes(capture, effect, parents);
+};
+
+/** An invocation receives its inputs only after their eager evaluation. */
+const invocationInputPrecedesEffect = (
+  capture: t.Node,
+  effect: t.Node | undefined,
+  parents: WeakMap<t.Node, t.Node>,
+): boolean => {
+  if (
+    !t.isCallExpression(effect) &&
+    !t.isOptionalCallExpression(effect) &&
+    !t.isNewExpression(effect)
+  )
+    return false;
+  let current = capture;
+  for (
+    let parent = parents.get(current);
+    parent;
+    parent = parents.get(current)
+  ) {
+    if (t.isFunction(parent)) return false;
+    if (isDeferredClassFieldValue(parent, current)) return false;
+    if (parent === effect)
+      return (
+        parent.callee === current ||
+        parent.arguments.some((argument) => argument === current)
+      );
+    current = parent;
+  }
+  return false;
 };
 
 /** Prove ordering only where JavaScript evaluates sibling expressions left-to-right. */
@@ -375,7 +410,8 @@ export const semanticReadInitializers = (
     parent;
     parent = parents.get(current)
   ) {
-    if (t.isLoop(parent)) return binding;
+    if (t.isLoop(parent) || isDeferredClassFieldValue(parent, current))
+      return binding;
     if (t.isFunction(parent)) break;
     if (position === null) {
       if (t.isVariableDeclarator(parent)) {

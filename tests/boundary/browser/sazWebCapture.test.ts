@@ -529,7 +529,8 @@ it.each([
       : "invalid_input",
   );
   // Expanded size is a caller-correctable input bound, not a decoder failure.
-  if (variant === "expanded-limit")
+  if (variant === "expanded-limit") {
+    expect(JSON.parse(result.stdout).code).toBe("invalid_request");
     expect(JSON.parse(result.stdout).details.issues).toEqual([
       expect.objectContaining({
         path: ["capture_path", ""],
@@ -539,6 +540,7 @@ it.each([
         },
       }),
     ]);
+  }
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
 

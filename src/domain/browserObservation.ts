@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { urlDeclaresQueryOrFragment } from "./urlComponents.js";
-import { parseUrlQueryParameterNames } from "./recordedTransportUrl.js";
+import {
+  parseRecordedTransportUrl,
+  parseUrlQueryParameterNames,
+} from "./recordedTransportUrl.js";
 
 const parseExactOrigin = (value: string): string | undefined => {
   let url: URL;
@@ -245,13 +248,18 @@ export const sanitizeBrowserUrl = (value: string): SanitizedBrowserUrl => {
   try {
     parsed = new URL(value);
   } catch (cause: unknown) {
-    // Unparseable input is preserved verbatim in the sanitized result.
     void cause;
+    const recorded = parseRecordedTransportUrl(value);
+    const credentials = recorded.credentials;
+    const sanitized =
+      credentials !== null && typeof credentials === "object"
+        ? value.slice(0, credentials.start) + value.slice(credentials.end)
+        : (recorded.credentialFreeReference ?? value);
     return {
-      url: value,
+      url: sanitized,
       origin: null,
       query_parameter_names: [],
-      redacted: false,
+      redacted: sanitized !== value,
     };
   }
   const hadCredentials = parsed.username !== "" || parsed.password !== "";

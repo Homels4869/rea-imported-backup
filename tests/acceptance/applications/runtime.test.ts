@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { CATALOG_IDENTITY } from "../../../src/catalogIdentity.js";
+import { analysisErrorProjectionSchema } from "../../../src/contracts/errorSchemas.js";
 import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
 import {
   evidenceResultOf,
@@ -68,6 +69,16 @@ const completeStderrRecords = (stderr: string): unknown[] =>
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line): unknown => JSON.parse(line));
+
+const hasFatalRecord = (records: readonly unknown[]): boolean =>
+  records.some(
+    (record) =>
+      typeof record === "object" &&
+      record !== null &&
+      "level" in record &&
+      typeof record.level === "number" &&
+      record.level >= 50,
+  );
 
 const callCurrentDocument = async (target?: {
   readonly path: string;
@@ -230,39 +241,45 @@ describe("production stdio runtime", () => {
     expect(records).toContainEqual(
       expect.objectContaining({ tool: "close_binary", status: "ok" }),
     );
-    const fatal = records.filter(
-      (record): record is { level: number } =>
-        typeof record === "object" &&
-        record !== null &&
-        "level" in record &&
-        typeof record.level === "number" &&
-        record.level >= 50,
-    );
-    expect(fatal).toEqual([]);
+    expect(hasFatalRecord(records)).toBe(false);
   });
 
   it.runIf(process.platform === "darwin")(
-    "serves a database-kind initial target without a fatal record on macOS",
+    "reports an unsupported database-kind initial target without a fatal record on macOS",
     async () => {
       const { result, records } = await callCurrentDocument({
         path: fileURLToPath(import.meta.url),
         kind: "database",
       });
-      expect(result.isError).not.toBe(true);
-      evidenceResultOf(z.literal("fixture")).parse(result.structuredContent);
+      expect(result.isError).toBe(true);
+      const text = result.content.find((item) => item.type === "text");
+      if (text?.type !== "text") throw new Error("Missing target error");
+      const failure = z
+        .object({ error: analysisErrorProjectionSchema })
+        .parse(JSON.parse(text.text));
+      expect(failure.error).toMatchObject({
+        code: "capability_unavailable",
+        category: "unsupported_provider",
+        retryable: false,
+        details: {
+          operation: "current_document",
+          selection_reason: "target_unsupported",
+          rejections: expect.arrayContaining([
+            expect.objectContaining({
+              provider_id: "hopper",
+              code: "target_kind_unsupported",
+              diagnostics: expect.objectContaining({
+                target_kind: "database",
+                target_format: "analysis-database",
+              }),
+            }),
+          ]),
+        },
+      });
       expect(records).toContainEqual(
-        expect.objectContaining({ tool: "current_document", status: "ok" }),
+        expect.objectContaining({ tool: "current_document", status: "error" }),
       );
-      expect(
-        records.some(
-          (record) =>
-            typeof record === "object" &&
-            record !== null &&
-            "level" in record &&
-            typeof record.level === "number" &&
-            record.level >= 50,
-        ),
-      ).toBe(false);
+      expect(hasFatalRecord(records)).toBe(false);
     },
     15_000,
   );

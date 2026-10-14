@@ -444,16 +444,25 @@ const isRequestUrlOrPathLiteral = (value: string): boolean =>
 
 /** Explicit request references, classified after receiver-specific exclusions. */
 const isRequestUrlReference = (value: string): boolean => {
+  // Generic receivers provide no URL identity for empty or leading-padded keys.
+  if (value.length === 0 || value.charCodeAt(0) <= 0x20) return false;
+  if (isRequestUrlOrPathLiteral(value)) return true;
+  // The parser owns scheme spelling, including embedded HT/LF/CR. No base is
+  // supplied, so ordinary relative keys cannot acquire an HTTP protocol.
+  const protocol = URL.parse(value)?.protocol;
   if (
-    isRequestUrlOrPathLiteral(value) ||
-    value.startsWith("?") ||
-    value.startsWith("#")
+    protocol === "http:" ||
+    protocol === "https:" ||
+    protocol === "ws:" ||
+    protocol === "wss:"
   )
     return true;
-  // WHATWG accepts HTTP/WS scheme forms without authority slashes. Parse
-  // without a base so bare keys stay ambiguous, and keep the source spelling.
-  if (!/^(?:https?|wss?):/iu.test(value)) return false;
-  return URL.parse(value) !== null;
+  // Match relative markers after WHATWG preprocessing, without changing the
+  // recorded value. Only complete literal/encoded dot segments are structural.
+  const spelling = value
+    .replace(/[\x00-\x20]+$/u, "")
+    .replace(/[\t\n\r]/gu, "");
+  return /^(?:[\\/?#]|(?:\.|%2e){1,2}(?:[\\/?#]|$))/iu.test(spelling);
 };
 
 /**

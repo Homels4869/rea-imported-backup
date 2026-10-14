@@ -193,6 +193,7 @@ describe.skipIf(process.platform === "win32")(
               command_outcome: {
                 killed: false,
                 stderr: expect.stringContaining(`-envvars: ${warning}`),
+                outputTruncated: false,
               },
               cause: { code: 3 },
             },
@@ -214,6 +215,7 @@ describe.skipIf(process.platform === "win32")(
               command_outcome: {
                 killed: false,
                 stderr: expect.stringContaining(`-vmargs: ${warning}`),
+                outputTruncated: false,
               },
               cause: { code: 3 },
             },

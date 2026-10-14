@@ -171,6 +171,42 @@ describe("JavaScript semantic analysis: native bindings 2", () => {
   });
 });
 
+it("reads invocation inputs before they escape while retaining later uncertainty", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    consume(process.env.PORT, process.env);
+    const later = process.env.AFTER;
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["PORT"]);
+});
+
+it.each([
+  "() => process.env.PORT",
+  "function () { return process.env.PORT; }",
+  "class { port = process.env.PORT; }",
+])(
+  "does not order deferred reads before an enclosing invocation: %s",
+  (value) => {
+    const ir = analyzeJavaScriptSemantics(`consume(${value}, process.env);`);
+    expect(ir.configurationOperations).toEqual([]);
+  },
+);
+
+it("orders static class field reads during argument evaluation", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    consume(class { static port = process.env.PORT; }, process.env);
+  `);
+  expect(ir.configurationOperations.map(({ key }) => key)).toEqual(["PORT"]);
+});
+
+it.each([
+  "function run() { consume(process.env.PORT, process.env); }",
+  "for (;;) { consume(process.env.PORT, process.env); }",
+])("keeps previous invocation escapes conservative: %s", (source) => {
+  expect(analyzeJavaScriptSemantics(source).configurationOperations).toEqual(
+    [],
+  );
+});
+
 describe("JavaScript semantic analysis: child-process signals", () => {
   it("keeps unresolved kill signals distinct from default and literal signals", () => {
     const ir = analyzeJavaScriptSemantics(`

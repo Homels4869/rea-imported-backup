@@ -16,7 +16,7 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
-import { semanticMutationInitializers } from "./javascriptSemanticMutationInitializers.js";
+import { semanticReadInitializers } from "./javascriptSemanticMutationInitializers.js";
 
 const GLOBAL_OBJECT_NAMES = ["globalThis", "global", "window", "self"];
 
@@ -44,25 +44,22 @@ type AmbientProjection = AmbientPath | undefined;
 
 /**
  * Follow local object identities without equating shallow copies with their
- * sources. Write lookup retains every visible initializer: reassigning an alias
- * later cannot erase a possible earlier mutation. Intrinsic reads stay strict.
+ * sources. Each alias read selects its own initializer snapshot, including when
+ * an earlier object captured an alias before a rebind. Unordered activations and
+ * loops retain every possible initializer. Intrinsic reads stay strict.
  */
 const createAmbientPathResolver = (
   state: JavaScriptSemanticAnalysisState,
   possibleWrites: boolean,
 ) => {
   const cached = new WeakMap<t.Node, readonly AmbientPath[]>();
-  return (node: t.Node, capture?: t.Node): readonly AmbientPath[] => {
+  return (node: t.Node): readonly AmbientPath[] => {
     const prior = possibleWrites ? undefined : cached.get(node);
     if (prior !== undefined) return prior;
     const result = new Map<string, AmbientPath>();
-    // The caller's write site selects initializers for the written target.
-    // Reads reached through an initializer occur at their own position.
-    const pending: {
-      node: t.Node;
-      suffix: AmbientProjection;
-      readsAtSelf?: true;
-    }[] = [{ node, suffix: [] }];
+    const pending: { node: t.Node; suffix: AmbientProjection }[] = [
+      { node, suffix: [] },
+    ];
     // Join projections at their producing expression, rather than enumerating
     // alias histories. Each key can only widen to a wildcard, and conflicting
     // depths widen to unknown, so diamonds and cycles have finite state.
@@ -109,11 +106,7 @@ const createAmbientPathResolver = (
       // A widened projection is a possible write, never proof of an intrinsic.
       if (suffix === undefined && !possibleWrites) continue;
       const continueWith = (node: t.Node, path: AmbientProjection = suffix) =>
-        pending.push({
-          node,
-          suffix: path,
-          ...(current.readsAtSelf && { readsAtSelf: true }),
-        });
+        pending.push({ node, suffix: path });
       if (
         t.isMetaProperty(root) &&
         root.meta.name === "import" &&
@@ -134,19 +127,15 @@ const createAmbientPathResolver = (
         const binding = resolveSemanticBindingState(state, root, root.name);
         if (binding === undefined) continue;
         const stable = semanticStableInitializer(binding, state);
-        const readAt = current.readsAtSelf ? root : capture;
         const initializers = possibleWrites
-          ? readAt === undefined
-            ? binding.initializers
-            : semanticMutationInitializers(binding, readAt, state.parentsByNode)
-                .initializers
+          ? semanticReadInitializers(binding, root, state.parentsByNode)
+              .initializers
           : stable === undefined
             ? []
             : [stable];
         for (const initializer of initializers)
           pending.push({
             node: initializer.node,
-            readsAtSelf: true,
             suffix:
               suffix === undefined
                 ? undefined
@@ -262,7 +251,7 @@ export function* indexJavaScriptAmbientWritesSteps(
   });
   yield* collectJavaScriptIdentityWritesSteps(
     program,
-    (root, kind, writeSite) => {
+    (root, kind) => {
       if (kind === "opaque-call") return [];
       // Reassigning a local alias changes the binding, not the referenced object.
       if (kind === "binding")
@@ -270,7 +259,7 @@ export function* indexJavaScriptAmbientWritesSteps(
           isUnshadowedGlobal(root, state, root.name)
           ? [["global", root.name]]
           : [];
-      return ambientWrites(root, writeSite);
+      return ambientWrites(root);
     },
     interop.intrinsicInvocation,
     interop.staticString,

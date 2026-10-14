@@ -241,6 +241,51 @@ while locally shadowed receivers can still contribute network endpoint
 candidates. A template recovered with a parser error and no cooked value stays
 dynamic; its raw spelling is not treated as a valid JavaScript string.
 
+Generic `get`, `post`, `put`, `patch`, `delete`, and `request` names do not
+establish an HTTP receiver. A bare string argument such as `form.get("name")`
+or `client.get("users")` remains available with `interpretation: "candidate"`;
+its application-graph observation and call edge carry low-confidence inference
+Evidence. Captured web bundles return these values under
+`inferences` with `kind: "endpoint_candidate"`, preserving the script digest,
+source location and detector instead of adding them to `observations.endpoints`.
+Captured-bundle candidates are deduplicated per script, value and detector;
+the basis location is the first matching site, not an inventory of occurrences
+or a runtime call count. The bundle result retains source digests, not complete
+script text. Inspect captured script sources separately when all sites are
+needed, and match their artifact digest before treating them as the same source.
+Recognized explicit forms include HTTP(S)/WebSocket URLs, network/root paths,
+dot-relative paths, query-only references such as `?page=2`, and fragment-only
+references such as `#section` (including empty `?` and `#`). They are classified
+after the existing collection/configuration exclusions; excluded lookup keys do
+not become endpoints merely because they start with `?` or `#`. Original text,
+parameter ordering and fragments are preserved without choosing a base URL.
+This is explicit-shape recognition, not full URI validation.
+HTTP(S)/WebSocket path references admit both slash kinds, including root,
+network, dot-relative and mixed-separator spellings such as `\api\users`,
+`\\api.example.test\users`, `.\users` and `..\users`. Their source spelling
+is retained when credential-free; the analysis does not choose a base or resolve
+them to an origin. Captured-web findings remove URL userinfo from relative
+network references through the shared transport URL parser. Ambiguous userinfo
+spellings may use a safe network-reference fallback without publishing its
+temporary parsing scheme or origin.
+HTTP(S)/WebSocket scheme forms without authority slashes, such as
+`https:api.example.test/users`, are also recognized when WHATWG URL parsing
+succeeds without a base. The parsed protocol also recognizes accepted spellings
+with embedded tab, LF or CR characters. Complete single/double-dot segments
+(`.`, `..` and their WHATWG `%2e` spellings) are recognized before either slash,
+query, fragment or end of input. Relative-marker recognition follows WHATWG
+tab/newline and trailing C0/space preprocessing on a temporary spelling only;
+the recorded value is never replaced by that spelling or generically decoded.
+Credential-free arguments retain their original
+spelling. Existing URL userinfo redaction still applies to captured-web findings;
+its safe fallback may normalize noncanonical URLs while preserving query
+parameters and fragments.
+Overloaded HTTP-method names with bare keys, encoded separators such as `%2f`
+or `%5c`, or leading C0/space keep their candidate classification. Dedicated
+network APIs retain their URL-argument findings; `fetch("login")` retains
+its syntax finding. These findings do not establish network execution. Dynamic receivers,
+computed URLs and request overloads still need independent evidence.
+
 RPC client syntax also contributes network endpoint candidates, in both
 `analyze_javascript_application` and `analyze_web_bundle`, distinguished by
 `mechanism`:

@@ -125,15 +125,45 @@ describe("CDP DOM capture", () => {
   );
 });
 
+describe("CDP DOM document identity", () => {
+  it.each([undefined, -1, -2, 0.5, 20])(
+    "does not invent a document identity from string index %s",
+    (documentURL) => {
+      const completeness = new CdpCaptureCompleteness();
+      const generator = captureDom(
+        { strings: [origin + "/app"], documents: [{ documentURL }] },
+        new Set([origin]),
+        inspectWebPageInputSchema.parse({
+          cdp_endpoint: "http://127.0.0.1:9222",
+          allowed_origins: [origin],
+          target_id: "page-1",
+        }),
+        completeness,
+      );
+      const captured = generator.next([]);
+      expect(captured.done).toBe(true);
+      expect(captured.value).toMatchObject({ total: 0, nodes: [], urls: [] });
+      expect(completeness.snapshot().excluded).toContainEqual({
+        section: "dom",
+        reason: "invalid_protocol_value",
+        count: 1,
+      });
+    },
+  );
+});
+
 describe("CDP DOM string and namespace validity", () => {
   it.each([
     { field: "nodeName", index: -1 },
     { field: "nodeName", index: 20 },
     { field: "nodeName", index: 2, malformedString: true },
+    { field: "nodeValue", index: -2 },
+    { field: "nodeValue", index: -0.5 },
     { field: "nodeValue", index: 20 },
     { field: "nodeValue", index: 5, malformedString: true },
     { field: "attributeName", index: -1 },
     { field: "attributeName", index: 20 },
+    { field: "attributeValue", index: -2 },
     { field: "attributeValue", index: 20 },
   ] as const)(
     // -1 is DOMSnapshot's empty string for values, never for names.

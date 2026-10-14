@@ -147,6 +147,13 @@ describe("enhanced MCP graph caveats", () => {
       },
     });
 
+    expect(graph.structuredContent).not.toHaveProperty(
+      "normalized_result.graph.0.0.limitations",
+    );
+    expect(graph.structuredContent).not.toHaveProperty(
+      "normalized_result.graph.1.0.limitations",
+    );
+
     const trace = await client.callTool({
       name: "trace_call_path",
       arguments: { start: "0x1", goal: "0x2" },

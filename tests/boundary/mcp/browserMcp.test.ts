@@ -9,6 +9,7 @@ import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { webPageInspectionSchema } from "../../../src/domain/browserObservationSchemas.js";
 import { createWebScreenshotArtifact } from "../../../src/domain/webScreenshot.js";
+import { webBundleAnalysisSchema } from "../../../src/domain/webBundleAnalysis.js";
 import { JAVASCRIPT_RUNTIME_RECONCILIATION_EXAMPLE } from "../../../src/contracts/javascript/javascriptRuntimeReconciliationExample.js";
 import {
   TOOL_CONTRACTS,
@@ -149,6 +150,139 @@ it(
   },
   INTEGRATION_TEST_TIMEOUT_MS,
 );
+
+it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () => {
+  const reverseReferences = [
+    String.raw`\api\users`,
+    String.raw`\\api.example.test\users`,
+    String.raw`.\users`,
+    String.raw`..\users`,
+    String.raw`/\api.example.test/users`,
+    String.raw`\/api.example.test\users`,
+  ];
+  const xhrReference = String.raw`..\xhr?tag=a&tag=b#part`;
+  const controlReference = "ht\ttps://api.example.test/controls?q=1#part";
+  const controlXhr = "w\nss://api.example.test/control-xhr";
+  const source = `fetch("login"); http.get("/api/users");
+    api.get(${JSON.stringify(controlReference.replace("api.example", "user:pass@api.example"))});
+    xhr.open(method, ${JSON.stringify(controlXhr)});
+    api.get(".?q=1#dot"); api.get("%2e%2e#parent");
+    new EventSource("relative-events"); navigator.sendBeacon("relative-beacon", {});
+    ${reverseReferences.map((value, index) => `api.${["get", "post", "put", "patch", "delete", "request"][index]}(${JSON.stringify(value)});`).join("\n")}
+    xhr.open(method, ${JSON.stringify(xhrReference)});
+    xhr.open("GET", ${JSON.stringify(String.raw`xhr\literal`)});
+    xhr.open(method, ${JSON.stringify(String.raw`xhr\ambiguous`)});
+    new Map().get(${JSON.stringify(reverseReferences[1])});
+    api.get("?page=2&tag=a&tag=b#section"); api.request("?");
+    xhr.open(method, "?view=1"); new Map().get("?lookup");
+    api.get("#section"); api.request("#"); xhr.open(method, "#view=1");
+    new Map().get("#lookup"); response.headers.get("#header-key");
+    const config = vscode.workspace.getConfiguration("git"); config.get("?setting");
+    config.get("#setting");
+    config.get(${JSON.stringify(reverseReferences[2])});
+    api.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
+    xhr.open(method, "ws:api.example.test/events"); api.get("https:");
+    new Map().get("https:api.example.test/map-key");
+    config.get("https:api.example.test/setting");
+    api.get("https:user:pass@api.example.test:443/a/../profile?x=a+b&x=two#part");
+    api.get("wss:user:pass@api.example.test:443/a/../events?x=a+b&x=two#part");
+    api.get(${JSON.stringify(String.raw`\\user:pass@api.example.test\profile?x=a+b&x=two#part`)});
+    api.get(${JSON.stringify(String.raw`/\user:pass@api.example.test\mixed?x=a+b&x=two#part`)});
+    form.get("passwordControl"); translate.get("ADDRESS_ADDED");
+    cookie.put("token", value); request("POST", target);
+    snackBar.open(message, "X");\n${'form.get("passwordControl");\n'.repeat(2_000)}`;
+  const browser = await startFakeCdpBrowser({
+    commandResult: (command) =>
+      command.method === "Debugger.getScriptSource"
+        ? { scriptSource: source }
+        : undefined,
+  });
+  browsers.push(browser);
+  const { client } = await connectBrowser();
+  const response = await client.callTool({
+    name: "analyze_web_bundle",
+    arguments: {
+      cdp_endpoint: browser.endpoint,
+      target_id: "allowed-page",
+      observation_ms: 0,
+    },
+  });
+  expect(response.isError).not.toBe(true);
+  const mcp = parseEvidence(response.structuredContent);
+  const cli = parseEvidence(
+    await runCliJson([
+      "analyze-web-bundle",
+      browser.endpoint,
+      "allowed-page",
+      "--observation-ms",
+      "0",
+      "--json",
+    ]),
+  );
+  for (const evidence of [mcp, cli]) {
+    const result = webBundleAnalysisSchema.parse(evidence.normalized_result);
+    expect(
+      result.observations.endpoints.map(({ value }) => value).sort(),
+    ).toEqual(
+      [
+        ...reverseReferences,
+        xhrReference,
+        controlReference,
+        controlXhr,
+        ".?q=1#dot",
+        "%2e%2e#parent",
+        "relative-events",
+        "relative-beacon",
+        String.raw`\\api.example.test\profile?x=a+b&x=two#part`,
+        String.raw`/\api.example.test\mixed?x=a+b&x=two#part`,
+        String.raw`xhr\literal`,
+        "#",
+        "#section",
+        "#view=1",
+        "/api/users",
+        "?",
+        "?page=2&tag=a&tag=b#section",
+        "?view=1",
+        "https://api.example.test/profile?x=a+b&x=two#part",
+        "https:api.example.test/users?q=1&tag=a&tag=b#part",
+        "login",
+        "ws:api.example.test/events",
+        "wss://api.example.test/events?x=a+b&x=two#part",
+      ].sort(),
+    );
+    const candidates = result.inferences.filter(
+      ({ kind }) => kind === "endpoint_candidate",
+    );
+    expect(candidates.map(({ value }) => value).sort()).toEqual([
+      "ADDRESS_ADDED",
+      "POST",
+      "X",
+      "https:",
+      "passwordControl",
+      "token",
+      String.raw`xhr\ambiguous`,
+    ]);
+    expect(result.limitations).toContain(
+      'Endpoint candidates are deduplicated by script, value and detector; basis retains only the first matching source coordinate. They are not a complete call-site inventory or a runtime occurrence count. completeness.status="complete" describes examination of captured source, not a call-site census.',
+    );
+    expect(JSON.stringify(result)).not.toContain("user:pass");
+    expect(JSON.stringify(result)).not.toContain("rea.invalid");
+    expect(
+      candidates.every(
+        ({ confidence, basis }) =>
+          confidence === "low" &&
+          basis.every(
+            ({ artifact_sha256, line }) =>
+              result.capture.source_artifacts.some(
+                (artifact) => artifact.sha256 === artifact_sha256,
+              ) && line !== null,
+          ),
+      ),
+    ).toBe(true);
+  }
+  const text = response.content.find((item) => item.type === "text");
+  expect(text).toMatchObject({ type: "text", text: JSON.stringify(mcp) });
+});
 
 const verifySessionAndComparisonTools = async (
   connected: Awaited<ReturnType<typeof connectBrowser>>,

@@ -780,21 +780,34 @@ describe("native IDA attached operation admission", () => {
   });
 
   it("reports the bound document but not headless-only address resolution", async () => {
-    const { client, producer, target } = await fixture();
-    const containing = await client.execute("resolve_containing_procedure", {
-      address: "0x1000",
-    });
-    expect(containing.ok).toBe(false);
-    if (!containing.ok)
-      expect(containing.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    const { client, producer, target, resources } = await fixture();
+    try {
+      const containing = await client.execute("resolve_containing_procedure", {
+        address: "0x1000",
+      });
+      expect(containing.ok).toBe(false);
+      if (!containing.ok)
+        expect(containing.error._tag).toBe(
+          "AnalysisCapabilityUnavailableError",
+        );
+      expect(producer.calls, "nothing is dispatched upstream").toEqual([]);
 
-    const documents = await client.execute("list_documents", {});
-    if (!documents.ok) throw documents.error;
-    expect(documents.value.result).toEqual([target.path]);
-    expect(
-      producer.calls.some(({ name }) => name === "lookup_funcs"),
-      "nothing is dispatched upstream",
-    ).toBe(false);
-    await client.close();
+      const documents = await client.execute("list_documents", {});
+      if (!documents.ok) throw documents.error;
+      expect(documents.value.result).toEqual([target.path]);
+      expect(documents.value.rawResult).toMatchObject({
+        metadata_before: { sha256: target.sha256 },
+        metadata_after: { sha256: target.sha256 },
+        observations: [],
+      });
+      expect(resources).toEqual(["ida://idb/metadata", "ida://idb/metadata"]);
+    } finally {
+      await client.close();
+    }
+    expect(producer.closes).toBe(1);
+    expect(producer.calls.map(({ name }) => name)).toEqual([
+      "get_metadata",
+      "get_metadata",
+    ]);
   });
 });

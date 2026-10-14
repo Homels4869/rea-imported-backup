@@ -7,6 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -254,13 +255,26 @@ describe("development test runner exact selection", () => {
       join(root, "src", "failure.test.ts"),
       'import { it } from "vitest"; it("selected failure", () => { throw new Error("selected regression"); });\n',
     );
-    await expect(
-      testCommand(root, "focused", "src/value.test.ts", "src/failure.test.ts"),
-    ).rejects.toMatchObject({
+    const failure: unknown = await testCommand(
+      root,
+      "focused",
+      "src/value.test.ts",
+      "src/failure.test.ts",
+    ).catch((cause: unknown) => cause);
+    expect(failure).toMatchObject({
       code: 1,
-      stdout: expect.stringContaining("1 failed | 1 passed"),
       stderr: expect.stringContaining("selected regression"),
     });
+    if (
+      typeof failure !== "object" ||
+      failure === null ||
+      !("stdout" in failure) ||
+      typeof failure.stdout !== "string"
+    )
+      throw new Error("Selected test failure did not retain stdout");
+    expect(stripVTControlCharacters(failure.stdout)).toContain(
+      "1 failed | 1 passed",
+    );
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
   });
 
@@ -271,7 +285,9 @@ describe("development test runner exact selection", () => {
       'export default { test: { projects: ["domain", "evaluation"].map(name => ({ test: { name, include: ["src/value.test.ts"] } })) } };\n',
     );
     const result = await testCommand(root, "focused", "src/value.test.ts");
-    expect(result.stdout).toMatch(/Test Files\s+2 passed/u);
+    expect(stripVTControlCharacters(result.stdout)).toMatch(
+      /Test Files\s+2 passed/u,
+    );
   });
 
   it("fails an exact file with no tests even when another selected file passes", async () => {

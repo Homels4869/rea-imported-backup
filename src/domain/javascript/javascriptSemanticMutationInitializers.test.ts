@@ -1,7 +1,10 @@
 import * as t from "@babel/types";
 import { describe, expect, it } from "vitest";
 
-import { semanticMutationInitializers } from "./javascriptSemanticMutationInitializers.js";
+import {
+  semanticMutationInitializers,
+  semanticReadInitializers,
+} from "./javascriptSemanticMutationInitializers.js";
 import type { JavaScriptSemanticBindingState } from "./javascriptSemanticState.js";
 import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 import { parseJavaScriptSource } from "./javascriptSourceParser.js";
@@ -60,6 +63,82 @@ describe("parameter references copied into function body bindings", () => {
       const origins = semanticMutationInitializers(binding, mutation, parents);
       expect(origins.initializers.includes(entry)).toBe(retained);
       expect(origins.initializers).toContain(assigned);
+    },
+  );
+});
+
+describe("class field alias activation snapshots", () => {
+  it.each([
+    ["public", false, false],
+    ["private", false, false],
+    ["accessor", false, false],
+    ["public", true, false],
+    ["private", true, false],
+    ["accessor", true, false],
+    ["public", false, true],
+    ["accessor", false, true],
+  ] as const)(
+    "selects %s field reads with static=%s and computed key=%s",
+    (kind, isStatic, computed) => {
+      const read = t.identifier("alias");
+      const initial = t.objectExpression([]);
+      const later = t.identifier("globalThis");
+      const key = computed ? read : t.identifier("field");
+      const value = computed ? t.numericLiteral(1) : read;
+      // Auto-accessors are a Babel AST contract even when the source parser
+      // does not enable their proposal syntax.
+      const field =
+        kind === "private"
+          ? t.classPrivateProperty(
+              t.privateName(t.identifier("field")),
+              value,
+              null,
+              isStatic,
+            )
+          : kind === "accessor"
+            ? t.classAccessorProperty(
+                key,
+                value,
+                null,
+                null,
+                computed,
+                isStatic,
+              )
+            : t.classProperty(key, value, null, null, computed, isStatic);
+      const program = t.program([
+        t.variableDeclaration("let", [
+          t.variableDeclarator(t.identifier("alias"), initial),
+        ]),
+        t.classDeclaration(t.identifier("C"), null, t.classBody([field])),
+        t.expressionStatement(
+          t.assignmentExpression("=", t.identifier("alias"), later),
+        ),
+      ]);
+      const parents = new WeakMap<t.Node, t.Node>();
+      traverseJavaScriptAst(program, {
+        enter: (node, parent) => {
+          if (parent !== null) parents.set(node, parent);
+        },
+      });
+      const before = { node: initial, projection: [] };
+      const after = { node: later, projection: [] };
+      const binding: JavaScriptSemanticBindingState = {
+        bindingId: "top:alias",
+        scopeId: "top",
+        name: "alias",
+        kind: "variable",
+        mutable: true,
+        memberWrites: [],
+        escapedPaths: [],
+        definitions: [],
+        initializers: [before, after],
+        referenceInitializers: [],
+        directOrigins: [],
+        runtimeImport: false,
+      };
+      expect(
+        semanticReadInitializers(binding, read, parents).initializers,
+      ).toEqual(isStatic || computed ? [before] : [before, after]);
     },
   );
 });

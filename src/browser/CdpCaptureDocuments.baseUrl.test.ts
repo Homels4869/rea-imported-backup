@@ -194,6 +194,37 @@ describe("DOM metadata document base URLs", () => {
 });
 
 describe("empty form destinations with a document base URL", () => {
+  it.each([
+    ["FORM", "action"],
+    ["BUTTON", "formaction"],
+    ["INPUT", "formaction"],
+  ])(
+    "accepts Chrome's empty-string indexes for %s %s",
+    (nodeName, attribute) => {
+      const value = snapshot(`${origin}/assets/`);
+      value.strings[6] = nodeName;
+      value.strings[14] = attribute;
+      const nodes = value.documents[0]!.nodes;
+      nodes.nodeValue.fill(-1);
+      nodes.attributes[4] = [14, -1];
+      const result = capture(value);
+      expect(result.nodes).toHaveLength(5);
+      expect(
+        result.nodes.every(({ node_value_length }) => node_value_length === 0),
+      ).toBe(true);
+      expect(result.urls[3]).toMatchObject({
+        url: documentUrl,
+        destination_scope: "approved",
+      });
+    },
+  );
+
+  it("uses the document URL when Chrome encodes an empty baseURL as -1", () => {
+    const value = snapshot(`${origin}/assets/`);
+    value.documents[0]!.baseURL = -1;
+    expect(capture(value).urls[1]?.url).toBe(`${origin}/screens/guide`);
+  });
+
   it("keeps an empty form action approved when the document base is foreign", () => {
     const foreign = "https://cdn.example.test/assets/";
     const value = snapshot(foreign, foreign);
@@ -332,6 +363,7 @@ const svgDocument = (
 ) => {
   const strings = [documentUrl, baseUrl];
   const intern = (value: string): number => {
+    if (value === "") return -1;
     const existing = strings.indexOf(value);
     if (existing >= 0) return existing;
     strings.push(value);
@@ -714,9 +746,13 @@ describe("SVG xlink:href context", () => {
           nodes: {
             ...document.nodes,
             nodeName: document.nodes.nodeName.map((index) => index + offset),
-            nodeValue: document.nodes.nodeValue.map((index) => index + offset),
+            nodeValue: document.nodes.nodeValue.map((index) =>
+              index === -1 ? index : index + offset,
+            ),
             attributes: document.nodes.attributes.map((attributes) =>
-              attributes.map((index) => index + offset),
+              attributes.map((index) =>
+                index === -1 ? index : index + offset,
+              ),
             ),
           },
         })),
