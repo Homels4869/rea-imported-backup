@@ -13,6 +13,7 @@ import {
 } from "./ProcessCaptureError.js";
 import type {
   InteractionEvent,
+  ProcessCaptureCleanupReport,
   UnverifiedProcessCapture,
   ProcessCaptureEventJournalEntry,
   ProcessSample,
@@ -622,6 +623,24 @@ const captureProgressDisposition = (
   return "failed";
 };
 
+const NOTHING_ALLOCATED = {
+  owned_process_group: { state: "not_required", reason: null },
+  terminal_renderer: { state: "not_required", reason: null },
+  temporary_root: { state: "not_required", reason: null },
+} as const satisfies ProcessCaptureCleanupReport;
+
+/**
+ * The cleanup a failed preparation performed. Preparation releases what it
+ * allocated and reports it on the error it throws; a failure before the first
+ * allocation carries no report because there was nothing to release.
+ */
+const preparationCleanupReport = (
+  cause: unknown,
+): ProcessCaptureCleanupReport =>
+  cause instanceof ProcessCaptureError && cause.cleanupReport !== undefined
+    ? cause.cleanupReport
+    : NOTHING_ALLOCATED;
+
 /** Execute one caller-selected scenario and return bounded observations. */
 const runProcessScenario = async (
   scenario: ProcessScenario,
@@ -672,6 +691,7 @@ const runProcessScenario = async (
       counts: progressCounts(),
       terminal: true,
       disposition: signal?.aborted === true ? "cancelled" : "failed",
+      cleanup: preparationCleanupReport(cause),
     });
     throw cause;
   }
