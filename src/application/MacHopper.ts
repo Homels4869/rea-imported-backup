@@ -22,6 +22,7 @@ import {
   downloadHopperPackage,
   HOPPER_DOWNLOAD_BYTES,
 } from "./HopperDownload.js";
+import { joinPosixPath } from "./PosixPath.js";
 
 const execFileAsync = promisify(execFile);
 const RELEASES_URL =
@@ -154,7 +155,7 @@ export const installMacHopper = async (
         ))
       )
         return { status: "failed", reason: "copy" };
-      const launcherPath = join(destination, "Contents/MacOS/hopper");
+      const launcherPath = joinPosixPath(destination, "Contents/MacOS/hopper");
       if (!(await host.launcherReady(launcherPath)))
         return { status: "failed", reason: "launcher_missing" };
       await host.openApplication(destination);
