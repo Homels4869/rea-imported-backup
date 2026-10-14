@@ -11,6 +11,7 @@ import {
   engineFixtureImage,
   buildElf64Image,
   REFERENCE_HASH,
+  renamedAotFixtureImage,
 } from "../../../src/flutter/FlutterBuild.fixture.js";
 import { snapshotSection } from "../../../src/flutter/FlutterBuild.fixture.js";
 import { FlutterBuildProvider } from "../../../src/flutter/FlutterBuildProvider.js";
@@ -537,6 +538,41 @@ it("inspects a full synthetic AOT image end to end", async () => {
   // All four symbols present, both data magics valid, pool under budget:
   // the honest answer for a complete payload is complete coverage.
   expect(value.coverage).toBe("complete");
+});
+
+// Dart SDK d36adbacaf renamed the exported symbols to _kDartSnapshotData and
+// _kDartSnapshotText and dropped kFullCore, so FullAOT is kind 2 there.
+it("inspects an AOT image in the renamed single-snapshot layout", async () => {
+  const apk = await buildApk("renamed.apk", [
+    { path: "lib/arm64-v8a/libapp.so", bytes: renamedAotFixtureImage() },
+  ]);
+  const result = await new FlutterBuildProvider().execute({
+    operation: "inspect_dart_aot",
+    input: { path: apk },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  const value = flutterResultSchemas.inspect_dart_aot.parse(
+    result.value.result,
+  );
+  expect(value.libapp.snapshot_hash).toBe(REFERENCE_HASH);
+  expect(value.libapp.snapshot_hash_sources).toBe(1);
+  expect(value.libapp.sections).toEqual([
+    expect.objectContaining({
+      name: "_kDartSnapshotData",
+      magic_valid: true,
+      kind: 2,
+    }),
+    expect.objectContaining({ name: "_kDartSnapshotText", kind: null }),
+  ]);
+  expect(value.string_pool.package_uris).toEqual([
+    "package:nextcloud/core.dart",
+    "package:saber/data/prefs.dart",
+  ]);
+  expect(value.string_pool.dart_uri_count_at_least).toBe(2);
+  expect(value.coverage).toBe("complete");
+  expect(result.value.limitations).not.toEqual(
+    expect.arrayContaining([expect.stringMatching(/snapshot symbols were/u)]),
+  );
 });
 
 it("reports aliased snapshot data symbols as partial coverage", async () => {
