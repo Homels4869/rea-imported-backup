@@ -1,0 +1,28 @@
+name: REA plugin validation
+
+on:
+  pull_request:
+    paths:
+      - "plugins/rea-agent-plugin/**"
+      - ".github/workflows/rea-plugin-validation.yml"
+  push:
+    paths:
+      - "plugins/rea-agent-plugin/**"
+      - ".github/workflows/rea-plugin-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-plugin-package:
+    name: Validate plugin manifests and package layout
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate REA plugin
+        run: node plugins/rea-agent-plugin/scripts/validate-plugin.mjs

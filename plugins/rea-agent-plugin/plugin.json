@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "rea-reverse-engineering",
+  "version": "1.1.0",
+  "description": "75 evidence-first software investigation and repository contribution skills, with specialist Claude Code agents.",
+  "author": {"name":"Lucas Belucci Bellini","url":"https://github.com/Lucas-Belucci-Bellini"},
+  "homepage": "https://rea.tools/",
+  "repository": "https://github.com/Lucas-Belucci-Bellini/rea",
+  "license": "MIT",
+  "keywords": ["reverse-engineering","software-analysis","mcp","binary-analysis","agent-skills","repository-contribution","claude-code","codex"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
