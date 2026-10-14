@@ -15,6 +15,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   assertRizinProcessStartTimeStable,
   parseRizinProcStartTime,
+  readProcStartTime,
   RizinDebugSessionManager,
 } from "../../../src/rizin/RizinDebugSessionManager.js";
 import { evidenceSchema } from "../../../src/domain/evidence.js";
@@ -322,6 +323,35 @@ it("parses Rizin's Linux proc stat start time and rejects malformed identity dat
     "disappeared or was reused",
   );
   expect(() => assertRizinProcessStartTimeStable("11", "11")).not.toThrow();
+});
+
+it("handles /proc stat read errors during Rizin identity verification", async () => {
+  const enoent = Object.assign(new Error("ENOENT: no such file or directory"), {
+    code: "ENOENT",
+  });
+  await expect(
+    readProcStartTime("123", async () => {
+      throw enoent;
+    }),
+  ).rejects.toThrow(
+    "The inferior PID disappeared or was reused during detach verification.",
+  );
+
+  const eacces = Object.assign(new Error("EACCES: permission denied"), {
+    code: "EACCES",
+  });
+  await expect(
+    readProcStartTime("123", async () => {
+      throw eacces;
+    }),
+  ).rejects.toThrow("EACCES: permission denied");
+
+  const fields = Array.from({ length: 20 }, (_, index) => String(index + 1));
+  const valid = await readProcStartTime(
+    "123",
+    async () => `123 (target) ${fields.join(" ")}`,
+  );
+  expect(valid).toBe("20");
 });
 
 it.skipIf(process.platform !== "linux")(

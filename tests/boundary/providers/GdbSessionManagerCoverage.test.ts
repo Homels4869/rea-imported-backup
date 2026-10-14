@@ -14,6 +14,7 @@ import {
   gdbThreadGroupCount,
   GdbSessionManager,
   miStringField,
+  verifyGdbInferiorOutputSink,
   waitForGdbCommandTurn,
 } from "../../../src/gdb/GdbSessionManager.js";
 import type {
@@ -1831,6 +1832,238 @@ it("retains GDB ownership when MI does not confirm target detachment", async () 
   ).toHaveLength(2);
   expect(fake.children[0]?.killSignals).toEqual([]);
   expect(manager.status(started.value.session_id)).toBeDefined();
+});
+
+it.each([
+  {
+    name: "fails close with identity error and omits -target-detach when first proc stat read fails with ENOENT",
+    fsOps: () => {
+      const enoent = Object.assign(
+        new Error("ENOENT: no such file or directory"),
+        { code: "ENOENT" },
+      );
+      return {
+        readFile: async () => {
+          throw enoent;
+        },
+      };
+    },
+    expectedMessage: "GDB could not establish the live inferior identity.",
+  },
+  {
+    name: "fails close with descriptor error and omits -target-detach when descriptor read fails with ENOENT",
+    fsOps: () => {
+      const validStat =
+        "123 (target) S 1 123 123 0 -1 4194304 100 0 0 0 10 20 0 0 20 0 1 0 42 0 0 0 0";
+      const fakeTtyStat = {
+        mode: 0o20666,
+        dev: 1,
+        ino: 2,
+      } as unknown as import("node:fs").Stats;
+      const enoent = Object.assign(
+        new Error("ENOENT: no such file or directory"),
+        { code: "ENOENT" },
+      );
+      return {
+        readFile: async () => validStat,
+        realpath: async (p: string) => p,
+        stat: async (p: string) => {
+          if (p === "/dev/pts/42") return fakeTtyStat;
+          throw enoent;
+        },
+        readlink: async () => "/dev/pts/42",
+      };
+    },
+    expectedMessage:
+      "GDB inferior descriptor 1 no longer points to the selected TTY.",
+  },
+  {
+    name: "fails close with identity error and omits -target-detach when final proc stat read fails with ENOENT",
+    fsOps: () => {
+      const validStat =
+        "123 (target) S 1 123 123 0 -1 4194304 100 0 0 0 10 20 0 0 20 0 1 0 42 0 0 0 0";
+      const fakeTtyStat = {
+        mode: 0o20666,
+        dev: 1,
+        ino: 2,
+      } as unknown as import("node:fs").Stats;
+      const enoent = Object.assign(
+        new Error("ENOENT: no such file or directory"),
+        { code: "ENOENT" },
+      );
+      let readCount = 0;
+      return {
+        readFile: async () => {
+          readCount += 1;
+          if (readCount === 1) return validStat;
+          throw enoent;
+        },
+        realpath: async (p: string) => p,
+        stat: async (p: string) => {
+          if (p === "/dev/pts/42") return fakeTtyStat;
+          return {
+            dev: 1,
+            ino: 2,
+            mode: 0o20666,
+          } as unknown as import("node:fs").Stats;
+        },
+        readlink: async () => "/dev/pts/42",
+      };
+    },
+    expectedMessage:
+      "The GDB inferior identity changed during descriptor readback.",
+  },
+  {
+    name: "propagates unexpected filesystem errors during verification and omits -target-detach",
+    fsOps: () => {
+      const eacces = Object.assign(new Error("EACCES: permission denied"), {
+        code: "EACCES",
+      });
+      return {
+        readFile: async () => {
+          throw eacces;
+        },
+      };
+    },
+    expectedMessage: "EACCES: permission denied",
+  },
+])("GDB inferior verification: $name", async ({ fsOps, expectedMessage }) => {
+  const tty = "/dev/pts/42";
+  const commands: string[] = [];
+  const fake = createFakeSpawner((child, token, command) => {
+    commands.push(command);
+    if (command.includes("inferior-tty-show"))
+      child.stdout.write(
+        `${token}^done,inferior_tty_terminal=${JSON.stringify(tty)}\n`,
+      );
+    else if (command.includes("list-thread-groups"))
+      child.stdout.write(`${token}^done,groups=[{id="i1",pid="123"}]\n`);
+    else child.stdout.write(`${token}^done\n`);
+  });
+  const manager = managerWithFakeSpawner(fake.spawnProcess, {
+    verifyInferiorOutputSink: (pid, selectedTty, rememberIdentity) =>
+      verifyGdbInferiorOutputSink(pid, selectedTty, rememberIdentity, fsOps()),
+  });
+  const started = await expectGdbSessionStarted(manager, undefined, {
+    inferiorTty: tty,
+  });
+
+  const closed = await manager.close(started.value.session_id);
+
+  expect(closed.ok).toBe(false);
+  if (!closed.ok)
+    expect(gdbErrorMessage(closed.error)).toContain(expectedMessage);
+  expect(commands).not.toContain("-target-detach");
+});
+
+it("verifies live GDB inferior output sink error handling directly", async () => {
+  const enoent = Object.assign(new Error("ENOENT: no such file or directory"), {
+    code: "ENOENT",
+  });
+  const eacces = Object.assign(new Error("EACCES: permission denied"), {
+    code: "EACCES",
+  });
+  const validStat =
+    "123 (target) S 1 123 123 0 -1 4194304 100 0 0 0 10 20 0 0 20 0 1 0 42 0 0 0 0";
+  const fakeTtyStat = {
+    mode: 0o20666,
+    dev: 1,
+    ino: 2,
+  } as unknown as import("node:fs").Stats;
+
+  // First stat read ENOENT
+  await expect(
+    verifyGdbInferiorOutputSink("123", "/dev/pts/42", () => {}, {
+      readFile: async () => {
+        throw enoent;
+      },
+    }),
+  ).rejects.toThrow("GDB could not establish the live inferior identity.");
+
+  // First stat read non-ENOENT propagates
+  await expect(
+    verifyGdbInferiorOutputSink("123", "/dev/pts/42", () => {}, {
+      readFile: async () => {
+        throw eacces;
+      },
+    }),
+  ).rejects.toThrow("EACCES: permission denied");
+
+  // Descriptor read ENOENT
+  await expect(
+    verifyGdbInferiorOutputSink("123", "/dev/pts/42", () => {}, {
+      readFile: async () => validStat,
+      realpath: async (p) => p,
+      stat: async (p) => {
+        if (p === "/dev/pts/42") return fakeTtyStat;
+        throw enoent;
+      },
+      readlink: async () => "/dev/pts/42",
+    }),
+  ).rejects.toThrow(
+    "GDB inferior descriptor 1 no longer points to the selected TTY.",
+  );
+
+  // Descriptor read non-ENOENT propagates
+  await expect(
+    verifyGdbInferiorOutputSink("123", "/dev/pts/42", () => {}, {
+      readFile: async () => validStat,
+      realpath: async (p) => p,
+      stat: async (p) => {
+        if (p === "/dev/pts/42") return fakeTtyStat;
+        throw eacces;
+      },
+      readlink: async () => "/dev/pts/42",
+    }),
+  ).rejects.toThrow("EACCES: permission denied");
+
+  // Final stat read ENOENT
+  let readCount = 0;
+  await expect(
+    verifyGdbInferiorOutputSink("123", "/dev/pts/42", () => {}, {
+      readFile: async () => {
+        readCount += 1;
+        if (readCount === 1) return validStat;
+        throw enoent;
+      },
+      realpath: async (p) => p,
+      stat: async (p) => {
+        if (p === "/dev/pts/42") return fakeTtyStat;
+        return {
+          dev: 1,
+          ino: 2,
+          mode: 0o20666,
+        } as unknown as import("node:fs").Stats;
+      },
+      readlink: async () => "/dev/pts/42",
+    }),
+  ).rejects.toThrow(
+    "The GDB inferior identity changed during descriptor readback.",
+  );
+
+  // Successful verification records identity
+  let capturedIdentity: unknown;
+  await verifyGdbInferiorOutputSink(
+    "123",
+    "/dev/pts/42",
+    (id) => {
+      capturedIdentity = id;
+    },
+    {
+      readFile: async () => validStat,
+      realpath: async (p) => p,
+      stat: async (p) => {
+        if (p === "/dev/pts/42") return fakeTtyStat;
+        return {
+          dev: 1,
+          ino: 2,
+          mode: 0o20666,
+        } as unknown as import("node:fs").Stats;
+      },
+      readlink: async () => "/dev/pts/42",
+    },
+  );
+  expect(capturedIdentity).toEqual({ pid: "123", startTime: "42" });
 });
 
 it.each([

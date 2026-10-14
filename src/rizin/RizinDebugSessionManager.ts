@@ -1407,10 +1407,14 @@ export const assertRizinProcessStartTimeStable = (
     );
 };
 
-const readProcStartTime = async (pid: string): Promise<string> => {
+/** @internal */
+export const readProcStartTime = async (
+  pid: string,
+  readFileFn: (path: string, encoding: "utf8") => Promise<string> = readFile,
+): Promise<string> => {
   let stat: string;
   try {
-    stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    stat = await readFileFn(`/proc/${pid}/stat`, "utf8");
   } catch (cause: unknown) {
     if (
       typeof cause === "object" &&
