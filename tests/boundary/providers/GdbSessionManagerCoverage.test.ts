@@ -23,10 +23,12 @@ import type {
 } from "../../../src/process/ProviderProcess.js";
 import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
 import { parseLinuxProcessStartTime } from "../../../src/process/ProcessOwnershipObservation.js";
+import { createProviderSpawnTracker } from "../../support/gdbProviderSpawnTracking.js";
 import { expectGdbSessionStarted } from "./gdbTestHelpers.js";
 
 let directory: string | undefined;
 const managers: GdbSessionManager[] = [];
+const providerSpawns = createProviderSpawnTracker();
 
 it.each([
   ["empty list", "1^done,groups=[]", 0],
@@ -1104,6 +1106,9 @@ const managerFor = async (
     platform: "linux",
     environment: { REA_GDB_COMMAND: await createProvider(body) },
     ...options,
+    ...(options.spawnProcess === undefined
+      ? { spawnProcess: providerSpawns.spawnProcess }
+      : {}),
   });
   managers.push(manager);
   return manager;
@@ -1134,6 +1139,7 @@ afterEach(async () => {
       .splice(0)
       .map((manager) => manager.closeAll().catch(() => undefined)),
   );
+  providerSpawns.killSurvivors();
   if (directory !== undefined)
     await rm(directory, { recursive: true, force: true });
   directory = undefined;
@@ -1175,6 +1181,30 @@ ${responsiveProvider()}
 
   expect(started.ok).toBe(true);
   if (started.ok) expect(started.value.mi_version).toBe("mi2");
+});
+
+it("keeps the MI3 startup failure when the MI2 fallback also fails", async () => {
+  const provider = await createProvider(`
+if (process.argv.includes('--interpreter=mi3')) {
+  process.stderr.write('mi3 startup diagnostic\\n');
+}
+process.exit(3);
+`);
+  const manager = new GdbSessionManager({
+    platform: "linux",
+    environment: { REA_GDB_COMMAND: provider },
+  });
+  managers.push(manager);
+
+  const started = await manager.start();
+
+  expect(started.ok).toBe(false);
+  if (!started.ok) {
+    expect(started.error.diagnostics).toHaveProperty("mi3_startup_error");
+    expect(JSON.stringify(started.error.diagnostics)).toContain(
+      "mi3 startup diagnostic",
+    );
+  }
 });
 
 it("retains ownership when GDB startup fails before its prompt and stop is incomplete", async () => {

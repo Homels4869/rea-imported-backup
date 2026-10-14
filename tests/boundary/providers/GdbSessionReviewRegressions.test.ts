@@ -10,16 +10,24 @@ import { evidenceSchema } from "../../../src/domain/evidence.js";
 import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
+import { createProviderSpawnTracker } from "../../support/gdbProviderSpawnTracking.js";
 
 // These tests launch controlled fake providers; Linux admission is injected so
 // lifecycle semantics remain testable on hosts that correctly reject GDB.
 const createGdbManagerForInjectedPlatform = (
   options: ConstructorParameters<typeof GdbSessionManager>[0] = {},
 ): GdbSessionManager =>
-  new GdbSessionManager({ platform: "linux", ...options });
+  new GdbSessionManager({
+    platform: "linux",
+    ...options,
+    ...(options.spawnProcess === undefined
+      ? { spawnProcess: providerSpawns.spawnProcess }
+      : {}),
+  });
 
 let directory: string | undefined;
 const managers: Array<{ closeAll(): Promise<void> }> = [];
+const providerSpawns = createProviderSpawnTracker();
 
 const expectOwnedProcessExited = async (pidText: string): Promise<void> => {
   const pid = Number(pidText);
@@ -496,6 +504,7 @@ afterEach(async () => {
       .splice(0)
       .map((manager) => manager.closeAll().catch(() => undefined)),
   );
+  providerSpawns.killSurvivors();
   if (directory !== undefined)
     await rm(directory, { recursive: true, force: true });
   directory = undefined;

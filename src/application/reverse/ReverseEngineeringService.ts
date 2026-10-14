@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat as statPath } from "node:fs/promises";
-import type { Stats } from "node:fs";
+import { constants } from "node:fs";
+import { open, stat as statPath } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import type { ReadStream, Stats } from "node:fs";
 import { resolve } from "node:path";
 
 import {
@@ -54,6 +55,7 @@ export interface ReverseEngineeringServiceOptions {
   readonly runOwned?: typeof runOwnedCommand;
   readonly digest?: typeof digestFile;
   readonly stat?: (path: string) => Promise<Stats>;
+  readonly open?: (path: string, flags: number) => Promise<FileHandle>;
 }
 
 interface ReverseEngineeringCommandRunner {
@@ -83,6 +85,7 @@ export class ReverseEngineeringService {
   readonly #run: ReverseEngineeringCommandRunner;
   readonly #digest: typeof digestFile;
   readonly #stat: (path: string) => Promise<Stats>;
+  readonly #open: (path: string, flags: number) => Promise<FileHandle>;
   readonly #pendingCleanup = new Map<
     ProviderProcessSupervisor,
     {
@@ -113,6 +116,7 @@ export class ReverseEngineeringService {
       );
     this.#digest = options.digest ?? digestFile;
     this.#stat = options.stat ?? statPath;
+    this.#open = options.open ?? open;
   }
 
   /** Ask retained process owners to settle cleanup before admitting more work. */
@@ -189,11 +193,17 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("inspect_with_objdump")),
       );
     const input = parsed.data;
-    const command = this.#commands.objdump(input);
+    // Capture the absolute artifact path once: the argv and the digest must
+    // name the same file even if the process directory changes while awaiting.
+    const bound =
+      input.operation === "architectures"
+        ? input
+        : { ...input, path: resolve(input.path) };
+    const command = this.#commands.objdump(bound);
     return this.#observe(
       "inspect_with_objdump",
       command,
-      input.operation === "architectures" ? undefined : input.path,
+      bound.operation === "architectures" ? undefined : bound.path,
       input,
       options.signal,
     );
@@ -209,11 +219,12 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("execute_rizin_command")),
       );
     const input = parsed.data;
-    const command = this.#commands.rizin(input);
+    const absolutePath = resolve(input.path);
+    const command = this.#commands.rizin({ ...input, path: absolutePath });
     return this.#observe(
       "execute_rizin_command",
       command,
-      input.path,
+      absolutePath,
       input,
       options.signal,
     );
@@ -295,7 +306,12 @@ export class ReverseEngineeringService {
     let digest: string | undefined;
     try {
       if (absolutePath !== undefined)
-        digest = await this.#digest(absolutePath, signal, this.#stat);
+        digest = await this.#digest(
+          absolutePath,
+          signal,
+          this.#stat,
+          this.#open,
+        );
     } catch (cause) {
       const code = (cause as NodeJS.ErrnoException).code;
       if (signal?.aborted)
@@ -534,7 +550,12 @@ export class ReverseEngineeringService {
       if (!cleanupOnlyFailure) completionStatus = "unknown";
     } else {
       try {
-        digestAfter = await this.#digest(absolutePath, signal, this.#stat);
+        digestAfter = await this.#digest(
+          absolutePath,
+          signal,
+          this.#stat,
+          this.#open,
+        );
       } catch {
         // Preserve the provider's collected observations if the artifact vanished or became unreadable.
       }
@@ -857,38 +878,78 @@ const digestFile = async (
   path: string,
   signal?: AbortSignal,
   stat: (path: string) => Promise<Stats> = statPath,
+  openArtifact: (path: string, flags: number) => Promise<FileHandle> = open,
 ): Promise<string> => {
   const info = await statWithDeadline(path, signal, stat);
   if (!info.isFile())
     throw Object.assign(new Error("Artifact digest requires a regular file"), {
       code: "EINVAL",
     });
+  let stream: ReadStream | undefined;
+  let interruption: Error | undefined;
+  let rejectInterrupted: (cause: Error) => void = () => undefined;
+  // Settles on cancellation or deadline so a stalled open or stat cannot
+  // outlive them; the late filesystem result is closed or ignored below.
+  const interrupted = new Promise<never>((_, reject) => {
+    rejectInterrupted = reject;
+  });
+  interrupted.catch(() => undefined);
+  const interrupt = (cause: Error): void => {
+    interruption ??= cause;
+    stream?.destroy(cause);
+    rejectInterrupted(cause);
+  };
+  // Armed before the open so the deadline also covers it.
+  const timer = setTimeout(
+    () =>
+      interrupt(
+        Object.assign(new Error("Artifact digest timed out"), {
+          code: "ETIMEDOUT",
+        }),
+      ),
+    DEFAULT_TIMEOUT_MS,
+  );
+  const abort = (): void =>
+    interrupt(new AnalysisCancelledError("artifact_digest"));
+  const cleanup = (): void => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  };
+  if (signal?.aborted) {
+    cleanup();
+    throw new AnalysisCancelledError("artifact_digest");
+  }
+  signal?.addEventListener("abort", abort, { once: true });
+  let handle: FileHandle | undefined;
+  try {
+    // The path may be replaced between the stat above and this open; a FIFO
+    // would block a worker. Open non-blocking and classify the opened handle.
+    handle = await Promise.race([
+      openArtifact(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).then(
+        (opened) => {
+          if (interruption !== undefined)
+            void opened.close().catch(() => undefined);
+          return opened;
+        },
+      ),
+      interrupted,
+    ]);
+    if (interruption !== undefined) throw interruption;
+    if (!(await Promise.race([handle.stat(), interrupted])).isFile())
+      throw Object.assign(
+        new Error("Artifact digest requires a regular file"),
+        { code: "EINVAL" },
+      );
+    if (interruption !== undefined) throw interruption;
+  } catch (cause) {
+    cleanup();
+    await handle?.close().catch(() => undefined);
+    throw cause;
+  }
+  const opened = handle;
   return new Promise<string>((resolveDigest, rejectDigest) => {
     const hash = createHash("sha256");
-    const stream = createReadStream(path);
-    const timer = setTimeout(
-      () =>
-        stream.destroy(
-          Object.assign(new Error("Artifact digest timed out"), {
-            code: "ETIMEDOUT",
-          }),
-        ),
-      DEFAULT_TIMEOUT_MS,
-    );
-    const abort = (): void => {
-      stream.destroy(new AnalysisCancelledError("artifact_digest"));
-    };
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-    };
-    if (signal?.aborted) {
-      cleanup();
-      stream.destroy();
-      rejectDigest(new AnalysisCancelledError("artifact_digest"));
-      return;
-    }
-    signal?.addEventListener("abort", abort, { once: true });
+    stream = opened.createReadStream();
     stream.on("data", (chunk: Buffer | string) => hash.update(chunk));
     stream.once("error", (cause: Error) => {
       cleanup();

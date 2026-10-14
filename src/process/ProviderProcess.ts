@@ -157,6 +157,11 @@ export interface ProviderProcessStopOptions {
   readonly cleanupResult?: ProcessCleanupResult;
   readonly terminationGraceMs?: number;
   readonly killGraceMs?: number;
+  /**
+   * Bounded wait for output streams to close after verified cleanup, before
+   * capture listeners are detached, so late diagnostics are still collected.
+   */
+  readonly outputSettleMs?: number;
 }
 
 /** Exact disposition of one owned process stop attempt. */
@@ -465,6 +470,10 @@ export class ProviderProcessSupervisor {
       const result = await this.#stopWithin(options);
       completed = result.status !== "incomplete";
       if (!completed) this.unref();
+      else if (options.outputSettleMs !== undefined)
+        await this.waitForOutputClose(options.outputSettleMs).catch(
+          () => undefined,
+        );
       return result;
     } finally {
       if (completed) this.dispose();

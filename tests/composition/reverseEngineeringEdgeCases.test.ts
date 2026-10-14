@@ -1,4 +1,5 @@
-import { rm } from "node:fs/promises";
+import { open, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import type { Stats } from "node:fs";
 
 import { expect, it, vi } from "vitest";
@@ -1045,3 +1046,121 @@ it.each([
     }
   },
 );
+
+it("settles a stalled artifact open on cancellation and closes the late handle once", async () => {
+  const { directory, path } = await createArtifact();
+  const controller = new AbortController();
+  const lateHandle = await open(path, "r");
+  let closeCalls = 0;
+  let settleOpen: ((handle: FileHandle) => void) | undefined;
+  const tracked = new Proxy(lateHandle, {
+    get(target, property, receiver) {
+      if (property === "close")
+        return async () => {
+          closeCalls += 1;
+          return target.close();
+        };
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as FileHandle;
+  const run = vi.fn(async () => ({ stdout: "", stderr: "" }));
+  let announceOpen: (() => void) | undefined;
+  const openStarted = new Promise<void>((resolve) => {
+    announceOpen = resolve;
+  });
+  const service = new ReverseEngineeringService({
+    open: () => {
+      announceOpen?.();
+      return new Promise<FileHandle>((resolve) => {
+        settleOpen = resolve;
+      });
+    },
+    run,
+  });
+
+  try {
+    const resultPromise = service.inspectWithObjdump(
+      { path, operation: "file_headers" },
+      { signal: controller.signal },
+    );
+    await openStarted;
+    controller.abort();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError" },
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(closeCalls).toBe(0);
+
+    settleOpen?.(tracked);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(closeCalls).toBe(1);
+  } finally {
+    await lateHandle.close().catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("maps a stalled artifact open to the digest deadline error", async () => {
+  const { directory, path } = await createArtifact();
+  const openArtifact = vi.fn(() => new Promise<FileHandle>(() => undefined));
+  const service = new ReverseEngineeringService({
+    open: openArtifact,
+    run: async () => ({ stdout: "", stderr: "" }),
+  });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+  try {
+    const resultPromise = service.inspectWithObjdump({
+      path,
+      operation: "file_headers",
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisTimeoutError" },
+    });
+    expect(openArtifact).toHaveBeenCalledExactlyOnceWith(
+      path,
+      expect.any(Number),
+    );
+  } finally {
+    vi.useRealTimers();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("reports a rejected artifact open without leaving the digest timer armed", async () => {
+  const { directory, path } = await createArtifact();
+  const run = vi.fn(async () => ({ stdout: "", stderr: "" }));
+  const service = new ReverseEngineeringService({
+    open: async () => {
+      throw Object.assign(new Error("artifact open failed"), {
+        code: "ENOENT",
+      });
+    },
+    run,
+  });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+  try {
+    const result = await service.inspectWithObjdump({
+      path,
+      operation: "file_headers",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisInputError" },
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
