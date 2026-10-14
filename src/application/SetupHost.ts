@@ -17,8 +17,8 @@ import {
 import { runDoctor, systemDoctorHost, type DoctorHost } from "./Doctor.js";
 import {
   installLinuxHopper,
+  LINUX_HOPPER_SETUP_HOSTS,
   LinuxHopperTemporaryCleanupOwner,
-  readLinuxDistribution,
   systemLinuxHopperInstallHost,
 } from "./LinuxHopper.js";
 import { installMacHopper, systemMacHopperInstallHost } from "./MacHopper.js";
@@ -122,7 +122,7 @@ export const hostRemediation = async (
     return `Install ${SUPPORTED_NODE_VERSION_PROSE} and rerun setup.`;
   if (!installHopper) return undefined;
   if (host.platform !== "darwin" && host.platform !== "linux")
-    return "REA supports Hopper on macOS and selected 64-bit Linux distributions.";
+    return "REA supports Hopper on macOS and selected x86_64 Linux distributions.";
   if (host.platform === "darwin") {
     const version = await host.macosVersion();
     return version === undefined || major(version) < 12
@@ -131,7 +131,7 @@ export const hostRemediation = async (
   }
   if ((await host.linuxDistribution())?.hopperSetupSupported === true)
     return undefined;
-  return "Automated Hopper setup supports Ubuntu 24.04+, Fedora 41+, Nobara 44+, 64-bit Arch Linux, CachyOS, and Omarchy; configure an existing supported provider instead.";
+  return `Automated Hopper setup requires ${LINUX_HOPPER_SETUP_HOSTS}; configure an existing supported provider instead.`;
 };
 
 /** Production setup effects for Hopper, agent configuration, and the canonical skill directory. */
@@ -147,7 +147,11 @@ export const systemSetupHost = (
       ? systemMacHopperInstallHost(homeDirectory, environment)
       : undefined;
   const resources = new ArtifactResourceScope();
-  const linuxHopperHost = systemLinuxHopperInstallHost(environment);
+  const linuxDistribution = () => doctorHost.linuxDistribution();
+  const linuxHopperHost = systemLinuxHopperInstallHost(
+    environment,
+    linuxDistribution,
+  );
   const pendingLinuxHopperCleanup = new LinuxHopperTemporaryCleanupOwner();
   return {
     platform,
@@ -157,7 +161,7 @@ export const systemSetupHost = (
     ...setupRegistration(platform, homeDirectory, environment),
     nodeVersion: process.versions.node,
     macosVersion: () => doctorHost.macosVersion(),
-    linuxDistribution: readLinuxDistribution,
+    linuxDistribution,
     close: () =>
       closeSetupResources(resources, macHopperHost, doctorHost, () =>
         pendingLinuxHopperCleanup.retry(linuxHopperHost.cleanup),
