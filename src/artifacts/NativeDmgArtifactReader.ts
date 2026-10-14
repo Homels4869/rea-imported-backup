@@ -452,7 +452,7 @@ export class NativeDmgArtifactReader implements ArtifactReader {
   }
 
   async #verify(signal?: AbortSignal): Promise<void> {
-    const arguments_ = ["verify", this.path];
+    const arguments_ = ["verify", "-verbose", this.path];
     const deadline = performance.now() + HDIUTIL_COMMAND_TIMEOUT_MS;
     for (let attempt = 0; ; attempt += 1) {
       if (signal?.aborted === true)
@@ -711,12 +711,33 @@ const verifyFailureDiagnostic = (
   stdout: string,
   stderr: string,
 ): string | undefined => {
-  const prefix = "hdiutil: verify failed - ";
-  return `${stdout}\n${stderr}`
+  const lines = `${stdout}\n${stderr}`
     .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line.startsWith(prefix))
-    ?.slice(prefix.length);
+    .map((line) => line.trim());
+  // -verbose reports the verification result independently of AppleLanguages.
+  // This is not the process exit status (1 for all these failures), nor an
+  // intermediate backing-store probe result. Keep the original output intact.
+  const resultPrefix = "hdiutil: verify: result: ";
+  const results = lines.filter((line) => line.startsWith(resultPrefix));
+  if (results.length > 1) return undefined;
+  switch (results[0]?.slice(resultPrefix.length)) {
+    case "111": // DiskImages: image not recognized.
+      return "image not recognized";
+    case "117": // DiskImages: invalid checksum.
+      return "invalid checksum";
+    case "2": // Darwin ENOENT.
+      return "No such file or directory";
+    case "5": // Darwin EIO.
+      return "Input/output error";
+    case "13": // Darwin EACCES.
+      return "Permission denied";
+    case "35": // Darwin EAGAIN; retains the existing bounded retry policy.
+      return "Resource temporarily unavailable";
+  }
+  // Preserve the existing exact diagnostics for producers without a known
+  // result code; unfamiliar localized failures still remain unavailable.
+  const prefix = "hdiutil: verify failed - ";
+  return lines.find((line) => line.startsWith(prefix))?.slice(prefix.length);
 };
 
 const command = (
