@@ -392,6 +392,40 @@ it("retains native partial observations and cleanup uncertainty on provider fail
   expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(true);
 });
 
+it("gives attached service-worker policy refusals actionable recovery", () => {
+  const projected = projectAnalysisError(
+    new BrowserObservationError(
+      "capture_browser_scenario",
+      "service_worker_policy_rejected",
+    ),
+  );
+  expect(projected).toMatchObject({
+    code: "target_unavailable",
+    category: "unavailable",
+    retryable: false,
+    details: {
+      operation: "capture_browser_scenario",
+      reason: "service_worker_policy_rejected",
+    },
+  });
+  expect(projected.message).toContain('environment.service_workers: "block"');
+  expect(projected.message).toContain('environment.service_workers: "allow"');
+  expect(projected.message).toContain(
+    "REA does not remove existing registrations",
+  );
+  expect(projected.message).not.toContain("rea doctor");
+  expect(projected.message).toContain(
+    "If the registration guard cannot be verified",
+  );
+  expect(projected.remediation.action).toBe(projected.message);
+  expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(true);
+  const unrelated = projectAnalysisError(
+    new BrowserObservationError("inspect_web_page", "target_not_allowed"),
+  );
+  expect(unrelated.details?.reason).toBe("target_not_allowed");
+  expect(unrelated.message).not.toContain("service_workers");
+});
+
 describe("analysis error projection: provider failures", () => {
   it("projects the primary browser failure alongside incomplete cleanup", () => {
     const projected = projectAnalysisError(

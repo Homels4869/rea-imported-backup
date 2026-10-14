@@ -223,7 +223,10 @@ export class PlaywrightScenarioServiceWorkers {
         throw cause;
       }
       if (violatesPolicy)
-        throw new BrowserObservationError(OPERATION, "target_not_allowed");
+        throw new BrowserObservationError(
+          OPERATION,
+          "service_worker_policy_rejected",
+        );
     }
   }
 

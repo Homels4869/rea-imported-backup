@@ -203,7 +203,7 @@ it("rejects an init script accepted by CDP when the live realm is unprotected", 
   await expect(
     PlaywrightScenarioSession.open(attached, {}, {}),
   ).rejects.toMatchObject({
-    reason: "target_not_allowed",
+    reason: "service_worker_policy_rejected",
   });
   expect(
     mocks.policySend.mock.calls.some(
@@ -499,7 +499,10 @@ it("rejects attached block when caller-owned registrations already exist", async
     PlaywrightScenarioSession.open(attached, {}, {}),
   ).rejects.toMatchObject({
     _tag: "BrowserObservationError",
-    reason: "target_not_allowed",
+    reason: "service_worker_policy_rejected",
+    userMessage: expect.stringContaining(
+      'environment.service_workers: "allow"',
+    ),
   });
   expect(page.addInitScript).not.toHaveBeenCalled();
   expect(cleanup.close).toHaveBeenCalledTimes(1);
