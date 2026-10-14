@@ -1,5 +1,91 @@
 # Changelog
 
+## [6.6.0](https://github.com/Homels4869/rea/compare/rea-agents-6.5.0...rea-agents-6.6.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **evidence:** Inventory Evidence must explicitly report integrity_contradictions, and browser capture Evidence must report every resolved budget. Caller input defaults remain supported; stored observations are never filled with inferred defaults.
+* **browser:** Browser capture results require resolved limits, event families, and omission facts. Caller-selected budgets replace hidden retention ceilings; admitted content reads queue behind bounded concurrency.
+* **artifacts:** Artifact inventories require scoped coverage. Obsolete coverage_status and prose-based coverage inference are removed. Inspection carriers authenticate every retained inventory substep.
+* **evidence:** Evidence and analysis snapshots require explicit nullable relationship coverage and include it in their identity commitments. Historical records without the field are rejected; saved files are not migrated.
+
+### Features
+
+* **website:** add contributors and complete the Greek edition ([#3520](https://github.com/Homels4869/rea/issues/3520)) ([569ef41](https://github.com/Homels4869/rea/commit/569ef4159db73931717825302b323fae7aa91bbf))
+
+
+### Bug Fixes
+
+* **analysis-view:** unify inert inline Evidence admission ([11b747f](https://github.com/Homels4869/rea/commit/11b747f29d5d073e20f08090f74cb157d4559bda))
+* **apple:** distinguish JVM resources and UIKit event connections ([ceb77f6](https://github.com/Homels4869/rea/commit/ceb77f669772507cfc4a2966bc12a86cb062e097))
+* **artifacts:** authenticate complete inspection and summary inputs ([0405c9d](https://github.com/Homels4869/rea/commit/0405c9d361de6d904dfa16cc0b6d8350407f2c9b))
+* **artifacts:** bind inspection provenance to every retained inventory ([9ac91e0](https://github.com/Homels4869/rea/commit/9ac91e0c1e13e91cd21341635ad5be89b0e8642d))
+* **browser:** expose capture budgets and queue admitted content reads ([57a23f0](https://github.com/Homels4869/rea/commit/57a23f0a2da0fdc3835e203718ded8acea5a34e6))
+* **browser:** preserve passive network inventory uncertainty ([e79e014](https://github.com/Homels4869/rea/commit/e79e014f23cf5b5d59aa5e5681897dbcad73b44e))
+* **ci:** include GitHub action code in static cache inputs ([c0aa2e3](https://github.com/Homels4869/rea/commit/c0aa2e32b3f6799cb872cc80375d8afdcaa59fe9))
+* **ci:** invalidate GitHub entrypoint and package-scope caches ([#3522](https://github.com/Homels4869/rea/issues/3522)) ([eb44921](https://github.com/Homels4869/rea/commit/eb44921c4c3682e33c78508285629926e8ef241e)), closes [#3510](https://github.com/Homels4869/rea/issues/3510)
+* **ci:** require portable inventory reports on selected runs ([#3549](https://github.com/Homels4869/rea/issues/3549)) ([0f62373](https://github.com/Homels4869/rea/commit/0f623732bddfa27542a86cfc1c5fb34ee9e9a195)), closes [#3542](https://github.com/Homels4869/rea/issues/3542)
+* **cli:** preserve Cutter choices and reject invalid runtime arguments ([45d5e80](https://github.com/Homels4869/rea/commit/45d5e801441f33903a45ab62259c8090ffc1051a))
+* **contracts:** honor options outside the schema projection cache ([0df0e4f](https://github.com/Homels4869/rea/commit/0df0e4f53e43becae33846ebb3720e5dc8a72e34))
+* **contracts:** preserve array guidance across MCP schema profiles ([204b9f3](https://github.com/Homels4869/rea/commit/204b9f3ac140a993c3e458bb0e117de31818ab29))
+* **contracts:** reject NUL bytes in Frida, Rizin, and GDB local path inputs ([#3575](https://github.com/Homels4869/rea/issues/3575)) ([a732c85](https://github.com/Homels4869/rea/commit/a732c859ddd005a0179854897a645b531bf163d3))
+* **contracts:** reject NUL bytes in keyed archive and extraction paths ([#3606](https://github.com/Homels4869/rea/issues/3606)) ([efbc486](https://github.com/Homels4869/rea/commit/efbc486b9bf8ab46da16fdd6ed88128849e30e81))
+* **cutter:** resolve bridge paths from the selected caller home ([7e0c7b1](https://github.com/Homels4869/rea/commit/7e0c7b124499dc60441f8aafe57815e01988085c))
+* **evidence:** reject missing recorded inventory and capture facts ([a9588be](https://github.com/Homels4869/rea/commit/a9588be4ebdd20eeda975cb63ffcdb1cd868b340))
+* **functions:** preserve coverage diagnostics separately from blockers ([cb4ff50](https://github.com/Homels4869/rea/commit/cb4ff50202af58f9f1b043b5932e4c33fa9509d1))
+* **ghidra:** preserve MIPS overrides and filter entry metadata ([50dd9fc](https://github.com/Homels4869/rea/commit/50dd9fcad1efb47cb404192c30bdf190dcdaca58))
+* **ghidra:** preserve PE PDB coverage facts ([#2933](https://github.com/Homels4869/rea/issues/2933)) ([0f55f24](https://github.com/Homels4869/rea/commit/0f55f247cdd2ae9bd7903d5e45962b19dfc233dc)), closes [#2259](https://github.com/Homels4869/rea/issues/2259)
+* **hopper:** skip non-file launcher candidates ([044fb91](https://github.com/Homels4869/rea/commit/044fb9127ac77dbb4d9992410f7596fc49dc446e))
+* **javascript:** keep source-module semantics independent of sibling bytes ([30a9139](https://github.com/Homels4869/rea/commit/30a9139b876bb26c7b59b9524c72bc1b15714a51))
+* **javascript:** preserve module identity and boundary fields ([b47055e](https://github.com/Homels4869/rea/commit/b47055edbe1680924401d1c7a3c0d1db3d308356))
+* **javascript:** track public CommonJS export receiver lifetimes ([#3567](https://github.com/Homels4869/rea/issues/3567)) ([7510404](https://github.com/Homels4869/rea/commit/75104040dffa9aa827e16f8f22a68307e48ff58d))
+* **jeb:** probe live operations with owned discovery deadlines ([a8887a9](https://github.com/Homels4869/rea/commit/a8887a9a85361a36ea25b09be06c6844c88308e8))
+* **managed:** compare nominal signatures across metadata builds ([#3059](https://github.com/Homels4869/rea/issues/3059)) ([eab789a](https://github.com/Homels4869/rea/commit/eab789aed74acd6ef7c15d509e0f3de350be2733))
+* **managed:** preserve enclosing identity in member comparisons ([#3079](https://github.com/Homels4869/rea/issues/3079)) ([1438422](https://github.com/Homels4869/rea/commit/1438422dfedf1de29368b595e09a04f1fc10750d))
+* **mcp:** authenticate inventory facts before prompt completion ([170bfc7](https://github.com/Homels4869/rea/commit/170bfc7b3fc9ce03368cf2df5e7b54107e65b1b8))
+* **mcp:** bind catalog identity to output schema profiles ([c5fb86d](https://github.com/Homels4869/rea/commit/c5fb86d1948af0a287a581b29b2b1d554743c607))
+* **mcp:** honor Frida partial evidence retention acknowledgments ([36615d9](https://github.com/Homels4869/rea/commit/36615d9165a889c2449037299829538337dcc45e))
+* **mcp:** preserve tuple constraints in advertised schemas ([10aa74d](https://github.com/Homels4869/rea/commit/10aa74dfedc3ae776f50d1fa1eb83b64ae82d3d6)), closes [#3576](https://github.com/Homels4869/rea/issues/3576)
+* **mcp:** share inspection admission for prompt completion ([07a501e](https://github.com/Homels4869/rea/commit/07a501e82c9c5128143cd43c43ade7ebbc54f15d))
+* **process:** attribute finite trace omissions and cleanup states ([fc7e41f](https://github.com/Homels4869/rea/commit/fc7e41ff3b1d24b0f8c1d49eff3dd7360c2e2681))
+* **process:** preserve caller overrides during Windows environment normalization ([1bbf4bd](https://github.com/Homels4869/rea/commit/1bbf4bd16ca134cdb2187eaf29291cae90d14a57))
+* **release:** install the npm canary before its MCP handshake ([0b4fd11](https://github.com/Homels4869/rea/commit/0b4fd11c8ccd411b5293f1b343609405cafd3194))
+* **release:** recover verified partial registry publications ([790657d](https://github.com/Homels4869/rea/commit/790657dc0dd68a6cc292fae70df1aa158ece8ba5))
+* **release:** rehearse qualified packages before publication ([6060de3](https://github.com/Homels4869/rea/commit/6060de329de9f3636f63e24a2419847fd9d3f889))
+* **release:** restore qualified runtime before the npm canary ([c99c6a8](https://github.com/Homels4869/rea/commit/c99c6a89d6985881bcad92754f429e39718073d7))
+* **setup:** integrate Windows runner and ConPTY corrections ([ebecf06](https://github.com/Homels4869/rea/commit/ebecf06f6ea0a5a08b4342c3befe8d8bdd4d1ef9))
+* **setup:** own Hopper replacement staging and committed outcomes ([8c0e431](https://github.com/Homels4869/rea/commit/8c0e431895b7df99f45f6a152422031d7c4bbb8c))
+* **setup:** preserve overridden runner variables and test isolation on Windows ([2abfe53](https://github.com/Homels4869/rea/commit/2abfe53dbdbdf7340e5243eb593ec3abcf3d2a5d))
+* **setup:** retain Hermes YAML scalar source during updates ([93e75bc](https://github.com/Homels4869/rea/commit/93e75bc8fe21780ab1ee517bfda4f4a7730d678d))
+* **setup:** select compact input schemas for Kimi registrations ([09e7f07](https://github.com/Homels4869/rea/commit/09e7f07108325a3cebd6e237395f3db5d5090646))
+* **test:** honor Ghidra startup budgets in Windows verification ([#3417](https://github.com/Homels4869/rea/issues/3417)) ([d9cd239](https://github.com/Homels4869/rea/commit/d9cd239c5ed7b078ac07e1bad633723fb49d8f80))
+* **windows:** explain missing native artifacts and verify output drain ([6add17a](https://github.com/Homels4869/rea/commit/6add17a317460acd78985ae4227c73d6b98998ac))
+
+
+### Code Refactoring
+
+* **apple:** remove unused class identity re-export ([4ff2dad](https://github.com/Homels4869/rea/commit/4ff2dadf661cfe7b475cc9dc99578dc0d2289fdb))
+* **artifacts:** share inspection validation and prune legacy fixtures ([591c87c](https://github.com/Homels4869/rea/commit/591c87c4b66a47e7346267163df6724ab1dff23f))
+* **evidence:** require current coverage commitments ([db8128d](https://github.com/Homels4869/rea/commit/db8128dc0d1c4f731f3d19877fa00d25cf17f657))
+
+
+### Documentation
+
+* align workflow recovery and current Evidence contracts ([7d885d6](https://github.com/Homels4869/rea/commit/7d885d632c226f493c435c899c2465b288bb64e8))
+
+
+### Tests
+
+* **browser:** verify typed worker refusals across navigations ([11f64f6](https://github.com/Homels4869/rea/commit/11f64f653e7bcf896fdb779a1b4013439f3a5149))
+* **electron:** isolate active-hook fixture resolution ([#3565](https://github.com/Homels4869/rea/issues/3565)) ([1579b68](https://github.com/Homels4869/rea/commit/1579b6865e8ee87873036a39af3e257cc70d6f21)), closes [#3473](https://github.com/Homels4869/rea/issues/3473)
+* **hopper:** verify external exit recovery and retained ownership ([d2a53be](https://github.com/Homels4869/rea/commit/d2a53beb3dc793cffe3aefb6710e5e808f1944c9))
+* isolate host discovery and update current capture fixtures ([bfd76c5](https://github.com/Homels4869/rea/commit/bfd76c5d16a44baf45592a22bce44f1088af9790))
+* **mcp:** remove cache and event order dependence from fault probes ([b8510ee](https://github.com/Homels4869/rea/commit/b8510ee00b7c4dc0624bed0e728649cf0606060f))
+* **perf:** measure genuine SAZ selection and retained recovery ([#3584](https://github.com/Homels4869/rea/issues/3584)) ([357996c](https://github.com/Homels4869/rea/commit/357996cc89f1a53ccf90731b0bf1d57d20c7d602))
+* **perf:** measure real sigrok annotation selection workflows ([ca1b2f8](https://github.com/Homels4869/rea/commit/ca1b2f8608c52ed721d3576ba5eeb1d66717b08c))
+* **process:** use owned host-aware settlement fixtures ([9b7ec80](https://github.com/Homels4869/rea/commit/9b7ec809e6d725318b5ef09e40af180041e29a79))
+
 ## [6.5.0](https://github.com/morluto/rea/compare/rea-agents-6.4.0...rea-agents-6.5.0) (2026-10-13)
 
 Provider prerequisites and recorded verification scope are listed in [the testing guide](docs/testing.md).
