@@ -5,7 +5,14 @@ import {
   findChangedBehavior,
   type ChangedBehaviorResult,
 } from "./changedBehavior.js";
-import { createEvidence, type Evidence } from "./evidence.js";
+import {
+  createEvidence,
+  type Evidence,
+  type EvidenceProvider,
+} from "./evidence.js";
+import { FUNCTION_COMPARISON_EVIDENCE } from "../contracts/investigationExamples.js";
+import { FUNCTION_COMPARISON_EXAMPLE } from "../contracts/functionComparisonExample.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
 import type { JsonValue } from "./jsonValue.js";
 
 const source = (digit: string): Evidence =>
@@ -136,6 +143,96 @@ const expectInvalidSummary = (result: ChangedBehaviorResult): void => {
     }).success,
   ).toBe(false);
 };
+
+type FunctionComparisonOverrides = {
+  readonly provider?: EvidenceProvider;
+  readonly predicateType?: string;
+  readonly confidence?: Evidence["confidence"];
+  readonly authority?: Evidence["authority"];
+  readonly subject?: boolean;
+  readonly evidenceLinks?: string[];
+};
+
+const functionComparisonWith = (
+  overrides: FunctionComparisonOverrides = {},
+): Evidence =>
+  createEvidence(
+    overrides.subject
+      ? {
+          path: "/fixture/comparison",
+          sha256: "c".repeat(64),
+          format: "file",
+        }
+      : undefined,
+    overrides.provider ?? FUNCTION_COMPARISON_PROVIDER,
+    {
+      predicateType:
+        overrides.predicateType ?? FUNCTION_COMPARISON_EVIDENCE.predicate_type,
+      operation: FUNCTION_COMPARISON_EVIDENCE.operation,
+      parameters: FUNCTION_COMPARISON_EVIDENCE.parameters,
+      result: FUNCTION_COMPARISON_EVIDENCE.normalized_result,
+      confidence:
+        overrides.confidence ?? FUNCTION_COMPARISON_EVIDENCE.confidence,
+      authority: overrides.authority ?? FUNCTION_COMPARISON_EVIDENCE.authority,
+      evidenceLinks:
+        overrides.evidenceLinks ?? FUNCTION_COMPARISON_EVIDENCE.evidence_links,
+    },
+  );
+
+describe("changed-behavior function comparison identity", () => {
+  it("accepts v2 Evidence and preserves the complete source closure", () => {
+    const result = aggregate([FUNCTION_COMPARISON_EVIDENCE]);
+    expect(result.comparisonEvidenceIds).toEqual([
+      FUNCTION_COMPARISON_EVIDENCE.evidence_id,
+    ]);
+    expect(result.result.evidence_links).toEqual(
+      expect.arrayContaining([
+        FUNCTION_COMPARISON_EVIDENCE.evidence_id,
+        FUNCTION_COMPARISON_EXAMPLE.left.evidence_id,
+        FUNCTION_COMPARISON_EXAMPLE.right.evidence_id,
+      ]),
+    );
+  });
+
+  it.each([
+    {
+      label: "revision 1",
+      provider: { ...FUNCTION_COMPARISON_PROVIDER, version: "1" },
+    },
+    {
+      label: "unsupported revision",
+      provider: { ...FUNCTION_COMPARISON_PROVIDER, version: "3" },
+    },
+    {
+      label: "foreign provider ID",
+      provider: {
+        ...FUNCTION_COMPARISON_PROVIDER,
+        id: "foreign-function-comparison",
+      },
+    },
+    {
+      label: "foreign provider name",
+      provider: {
+        ...FUNCTION_COMPARISON_PROVIDER,
+        name: "Foreign function comparison",
+      },
+    },
+    { label: "wrong predicate", predicateType: "rea.artifact-comparison" },
+    { label: "wrong confidence", confidence: "observed" as const },
+    { label: "wrong authority", authority: "shipped-artifact" as const },
+    { label: "subject-bound Evidence", subject: true },
+  ])("rejects $label", ({ label: _label, ...overrides }) => {
+    expect(() => aggregate([functionComparisonWith(overrides)])).toThrow(
+      /operation, predicate, and provider disagree/u,
+    );
+  });
+
+  it("rejects missing comparison source links", () => {
+    expect(() =>
+      aggregate([functionComparisonWith({ evidenceLinks: [] })]),
+    ).toThrow(/must cite both selected source observations/u);
+  });
+});
 
 describe("changed behavior", () => {
   it("accepts process comparison Evidence", () => {

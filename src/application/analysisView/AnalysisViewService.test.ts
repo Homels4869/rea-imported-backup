@@ -145,6 +145,92 @@ it("projects a small native view from an authenticated >10 MiB retained dossier"
   });
 });
 
+it("pages warning-heavy Evidence without repeating its complete warning limitations", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const warnings = Array.from(
+    { length: 3000 },
+    (_, index) => `warning ${index}: ${"x".repeat(600)}`,
+  );
+  const blocks = warnings.map((_, warning_index) => ({
+    start: `0x${(0x401000 + warning_index * 4).toString(16)}`,
+    end: null,
+    address_space: "ram",
+    reason: "unreachable" as const,
+    reported_offset: `0x${(0x401000 + warning_index * 4).toString(16)}`,
+    warning_index,
+  }));
+  dossier.decompiler_completeness = {
+    status: "warnings",
+    provenance: "ghidra-decompiler-warning-observations",
+    warning_count: warnings.length,
+    warnings,
+    diagnostic: "diagnostic".repeat(1000),
+    dropped_blocks: blocks,
+    disassembly_available: true,
+  };
+  dossier.limitations.push(
+    ...warnings.map((text) => `Ghidra pseudocode warning: ${text}`),
+  );
+  const parent = createEvidence(
+    { path: "/fixture", format: "elf", sha256: "b".repeat(64) },
+    { id: "ghidra", name: "Ghidra", version: "12.1.4" },
+    {
+      operation: "analyze_function",
+      parameters: { procedure: "0x401000" },
+      result: dossier,
+      limitations: dossier.limitations,
+    },
+  );
+  const inspect = (
+    facet:
+      | "decompiler_completeness"
+      | "decompiler_warnings"
+      | "decompiler_dropped_blocks"
+      | "decompiler_diagnostic"
+      | "limitations",
+    offset = 0,
+    limit = 1,
+  ) => {
+    const result = inspectAnalysisView(
+      {
+        source: { kind: "retained-evidence", evidence_id: parent.evidence_id },
+        view: { kind: "native", facet, offset, limit },
+      },
+      () => parent,
+    );
+    if (!result.ok) throw result.error;
+    expect(JSON.stringify(result.value).length).toBeLessThan(12000);
+    return result.value.normalized_result;
+  };
+  expect(inspect("decompiler_completeness")).toMatchObject({
+    item: {
+      warning_count: 3000,
+      dropped_block_count: 3000,
+      diagnostic_present: true,
+    },
+  });
+  expect(inspect("decompiler_warnings", 20)).toMatchObject({
+    item: [{ warning_index: 20, text: warnings[20] }],
+    coverage: { total: 3000, examined: 1, next_offset: 21 },
+  });
+  expect(inspect("decompiler_dropped_blocks", 20)).toMatchObject({
+    item: [blocks[20]],
+    coverage: { next_offset: 21 },
+  });
+  expect(inspect("decompiler_diagnostic", 2, 7)).toMatchObject({
+    item: { text: "agnosti", unit: "utf16-code-units" },
+    coverage: { next_offset: 9 },
+  });
+  expect(inspect("limitations", 100)).toMatchObject({
+    coverage: { examined: 1, next_offset: 101 },
+  });
+  expect(inspect("decompiler_warnings", 3000)).toMatchObject({
+    item: [],
+    coverage: { exhausted: true },
+  });
+  expect(JSON.stringify(parent).length).toBeGreaterThan(5 * 1024 * 1024);
+});
+
 it("projects inline layout Evidence and retains a derived view record", () => {
   const parent = analysisViewLayoutEvidence();
   const result = inspectAnalysisView({

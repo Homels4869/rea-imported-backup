@@ -138,6 +138,7 @@ export const resolveGhidraAnalysisProfile = async (
           instruction_references: "exact-address-incoming-v1",
           function_boundary_observations:
             "ghidra-function-boundary-limitations-v3",
+          decompiler_completeness: "ghidra-warning-observations-v6",
           no_return_repair:
             installation.platform === "win32"
               ? "disabled-windows-p0"
@@ -235,6 +236,7 @@ export const resolveGhidraAnalysisProfile = async (
         instruction_references: "exact-address-incoming-v1",
         function_boundary_observations:
           "ghidra-function-boundary-limitations-v3",
+        decompiler_completeness: "ghidra-warning-observations-v6",
         no_return_repair:
           installation.platform === "win32"
             ? "disabled-windows-p0"

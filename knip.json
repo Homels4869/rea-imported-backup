@@ -10,6 +10,7 @@
     "scripts/verify/fridaBindingsCompatibility.ts",
     "scripts/verify/termux/browser.mjs",
     "scripts/verify-real-ghidra-noreturn.mjs",
+    "scripts/verify-real-ghidra-completeness.mjs",
     "scripts/run-exact-tests.mjs",
     "tests/processOwnershipRunner.ts"
   ],

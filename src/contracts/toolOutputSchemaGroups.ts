@@ -298,6 +298,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
             procedure: batchProcedureIdentity,
             status: z.literal("ok"),
             pseudocode: z.string().min(1),
+            limitations: z.array(z.string()).default([]),
           }),
           z.object({
             address: z
@@ -306,6 +307,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
             procedure: batchProcedureIdentity,
             status: z.literal("error"),
             error: analysisErrorProjectionSchema,
+            limitations: z.array(z.string()).default([]),
           }),
         ]),
       ),

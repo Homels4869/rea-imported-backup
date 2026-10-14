@@ -1,4 +1,5 @@
 import { functionDossierSchema } from "../../domain/hopperValues.js";
+import { decompilerObservationLimitations } from "../../domain/native/decompilerCompleteness.js";
 import { nativeCallTargetsSchema } from "../../domain/native/nativeInstruction.js";
 import {
   nativeValueTraceInputSchema,
@@ -27,6 +28,7 @@ export const traceNativeValues = async (
   const edges: typeof nativeValueTraceSchema._output.edges = [];
   const procedures: typeof nativeValueTraceSchema._output.procedures = [];
   const unknowns: typeof nativeValueTraceSchema._output.unknowns = [];
+  const decompilerWarnings: string[] = [];
   const callBindings: {
     caller: string;
     callee: string;
@@ -144,6 +146,12 @@ export const traceNativeValues = async (
       },
     );
     const evidenceId = evidence.evidence_id;
+    for (const reason of decompilerObservationLimitations(
+      dossier.decompiler_completeness,
+    )) {
+      unknowns.push({ procedure: address, address: null, reason });
+      decompilerWarnings.push(`${address}: ${reason}`);
+    }
     procedures.push({
       address,
       depth: next.depth,
@@ -421,6 +429,7 @@ export const traceNativeValues = async (
         : null,
     truncated: truncated || page.length !== nodes.length,
     limitations: [
+      ...new Set(decompilerWarnings),
       "Static decompiler def-use graphs cover recovered block members; when membership is unavailable they exclude operations marked dead. Logical CALL argument positions bind to recovered HighParam ordinals and RETURN values bind to recovered CALL outputs; these are decompiler-derived dependencies, not original source or runtime observations. Missing parameters, variadic arguments and alias dependencies remain unknown.",
       "LOAD and STORE are memory operations; object fields, persistent state and RNG semantics are not inferred from names or pseudocode.",
       "Traversal caps depth, decompilations, call-site resolutions, nodes, edges and node payloads (8 MiB). Complete serialized output is bounded to 32 MiB. Pagination reruns analysis and returns edges whose source is on the node page; endpoints outside the page retain stable identities.",

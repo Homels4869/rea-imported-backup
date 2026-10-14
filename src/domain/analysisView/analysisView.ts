@@ -164,6 +164,11 @@ const nativeViewSchema = z.strictObject({
   facet: z.enum([
     "procedure",
     "pseudocode",
+    "decompiler_completeness",
+    "decompiler_warnings",
+    "decompiler_dropped_blocks",
+    "decompiler_diagnostic",
+    "limitations",
     "assembly",
     "basic_blocks",
     "comments",

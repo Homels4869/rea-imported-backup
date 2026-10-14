@@ -3,6 +3,9 @@ import {
   createAnalysisProfile,
   type AnalysisProfileCommitment,
 } from "../domain/analysisProfile.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "../domain/functionComparisonProvider.js";
+
+export { FUNCTION_COMPARISON_PROVIDER } from "../domain/functionComparisonProvider.js";
 
 /** Provider identity for deterministic composed analysis workflows. */
 export const REA_WORKFLOW_PROVIDER = {
@@ -19,12 +22,15 @@ export const workflowAnalysisProfile = (
   createAnalysisProfile(REA_WORKFLOW_PROVIDER, {
     upstream_analysis_profile: upstream,
     ...(operation === "binary_overview"
-      ? { workflow_revision: 4 }
-      : operation === "batch_decompile" ||
-          operation === "get_call_graph" ||
-          operation === "trace_feature"
-        ? { workflow_revision: 3 }
-        : { workflow_revision: 1 }),
+      ? { workflow_revision: 5 }
+      : operation === "batch_decompile"
+        ? { workflow_revision: 4 }
+        : operation === "inspect_native_api" ||
+            operation === "trace_native_values" ||
+            operation === "get_call_graph" ||
+            operation === "trace_feature"
+          ? { workflow_revision: 3 }
+          : { workflow_revision: 1 }),
   });
 
 /** Provider identity for deterministic artifact inventories. */
@@ -101,7 +107,7 @@ export const JAVASCRIPT_RUNTIME_RECONCILIATION_PROVIDER = {
 export const ANALYSIS_VIEW_PROVIDER = {
   id: "rea-analysis-view",
   name: "REA analysis view projection",
-  version: "1",
+  version: "2",
 } as const;
 
 /** Provider identity for graph-native feature tracing and version comparison. */
@@ -115,13 +121,6 @@ export const JAVASCRIPT_APPLICATION_WORKFLOW_PROVIDER = {
 export const ARTIFACT_COMPARISON_PROVIDER = {
   id: "rea-artifact-comparison",
   name: "REA artifact comparison",
-  version: "1",
-} as const;
-
-/** Provider identity for deterministic cross-function comparisons. */
-export const FUNCTION_COMPARISON_PROVIDER = {
-  id: "rea-function-comparison",
-  name: "REA function comparison",
   version: "1",
 } as const;
 

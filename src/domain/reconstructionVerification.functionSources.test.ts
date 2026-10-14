@@ -16,6 +16,7 @@ import {
   type JsonValue,
 } from "./jsonValue.js";
 import { createResidualUnknown } from "./residualUnknown.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
 
 import { compareFunctions } from "./functionComparison.js";
 import { verifyReconstruction } from "./reconstructionVerification.js";
@@ -34,6 +35,16 @@ const dossier = jsonValueSchema.parse(
       locals: [],
     },
     pseudocode: "return 0;",
+    // Synthetic producer explicitly records the warning observation used here.
+    decompiler_completeness: {
+      status: "no-warnings-reported",
+      provenance: "fixture-warning-observations",
+      warning_count: 0,
+      warnings: [],
+      diagnostic: null,
+      dropped_blocks: [],
+      disassembly_available: true,
+    },
     assembly: [],
     comments: [],
     callers: [],
@@ -98,11 +109,7 @@ const plural = {
   left_evidence_ids: [left.evidence_id],
   right_evidence_ids: [right.evidence_id],
 };
-const provider = {
-  id: "rea-function-comparison",
-  name: "REA function comparison",
-  version: "1",
-};
+const provider = FUNCTION_COMPARISON_PROVIDER;
 const baselineResult = compareFunctions(left, right);
 
 const comparison = (
@@ -697,7 +704,7 @@ describe("function reconstruction evidence integrity", () => {
   it.each([
     { ...provider, id: "other-comparison" },
     { ...provider, name: "Other comparison" },
-    { ...provider, version: "2" },
+    { ...provider, version: "1" },
   ])("rejects comparison provider %j", (identity) => {
     expect(
       admittedVerification(

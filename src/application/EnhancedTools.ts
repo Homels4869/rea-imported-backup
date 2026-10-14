@@ -74,6 +74,7 @@ type BatchDecompileItem = {
   readonly address: string;
   readonly procedure: BatchProcedureIdentity;
   readonly status: "ok" | "error";
+  readonly limitations: string[];
   readonly pseudocode?: string;
   readonly error?: ReturnType<typeof projectAnalysisError>;
 };
@@ -375,7 +376,7 @@ export class EnhancedTools {
   ): Promise<Result<BatchDecompileItem, AnalysisCancelledError>[]> {
     return Promise.all(
       ready.map(async ({ address, procedure, providerProcedure }) => {
-        const result = await this.#call(
+        const result = await this.#observe(
           "procedure_pseudo_code",
           { procedure: providerProcedure },
           signal,
@@ -388,13 +389,16 @@ export class EnhancedTools {
               address,
               procedure,
               status: "error",
+              limitations: [],
               error: projectAnalysisError(result.error),
             }
-          : typeof result.value !== "string" || result.value.length === 0
+          : typeof result.value.result !== "string" ||
+              result.value.result.length === 0
             ? {
                 address,
                 procedure,
                 status: "error",
+                limitations: [...result.value.limitations],
                 error: projectAnalysisError(
                   new AnalysisOutputError(
                     "procedure_pseudo_code",
@@ -406,7 +410,8 @@ export class EnhancedTools {
                 address,
                 procedure,
                 status: "ok",
-                pseudocode: result.value,
+                limitations: [...result.value.limitations],
+                pseudocode: result.value.result,
               };
         return ok(item);
       }),

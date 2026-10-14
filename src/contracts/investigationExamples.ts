@@ -4,6 +4,7 @@ import { compareProcessCaptures } from "../domain/process/processComparison.js";
 import { parseProcessCapture } from "../domain/process/processCaptureParsing.js";
 import { FUNCTION_COMPARISON_EXAMPLE } from "./functionComparisonExample.js";
 import { EMPTY_PROCESS_CAPTURE_EXAMPLE } from "../domain/process/processCaptureExample.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "../domain/functionComparisonProvider.js";
 
 import { compareFunctions } from "../domain/functionComparison.js";
 const comparison = compareFunctions(
@@ -13,11 +14,7 @@ const comparison = compareFunctions(
 
 export const FUNCTION_COMPARISON_EVIDENCE = createEvidence(
   undefined,
-  {
-    id: "rea-function-comparison",
-    name: "REA function comparison",
-    version: "1",
-  },
+  FUNCTION_COMPARISON_PROVIDER,
   {
     predicateType: "rea.function-comparison",
     operation: "compare_functions",

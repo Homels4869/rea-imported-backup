@@ -23,7 +23,13 @@ import {
 import type { JsonValue } from "../domain/jsonValue.js";
 import type { UnknownRegistryPort } from "./investigation/InvestigationRecordPort.js";
 import { UnknownRegistryError } from "../domain/unknownRegistryError.js";
+import { z } from "zod";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
+
+// The producer owns whole-result validation. Evidence consumes only this metadata projection.
+const workflowLimitationsProjection = z.object({
+  limitations: z.array(z.string()).default([]),
+});
 
 /** Retain the limits of exactly the observations used by one composed call. */
 export const executeComposedWorkflow = async (
@@ -79,12 +85,62 @@ export const createWorkflowEvidence = (input: {
     confidence: "derived",
     limitations: [
       "Derived by an REA composed workflow.",
+      ...nativeWorkflowLimitations(input.operation, input.result),
       ...input.upstreamLimitations,
     ],
     ...(input.operation === "batch_decompile"
       ? { locations: batchProcedureLocations(input.result) }
       : {}),
   });
+
+const nativeWorkflowLimitations = (
+  operation: AnalysisOperation,
+  result: JsonValue,
+): readonly string[] => {
+  if (operation === "batch_decompile") return batchProcedureLimitations(result);
+  if (
+    operation === "inspect_native_api" ||
+    operation === "trace_native_values"
+  ) {
+    const parsed = workflowLimitationsProjection.safeParse(result);
+    return parsed.success ? parsed.data.limitations : [];
+  }
+  return [];
+};
+
+const batchProcedureLimitations = (result: JsonValue): string[] => {
+  if (
+    result === null ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    !Array.isArray(result.items)
+  )
+    return [];
+  const limitations: string[] = [];
+  for (const item of result.items) {
+    if (
+      item === null ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.address !== "string" ||
+      !Array.isArray(item.limitations)
+    )
+      continue;
+    const procedure = item.procedure;
+    const address =
+      procedure !== null &&
+      typeof procedure === "object" &&
+      !Array.isArray(procedure) &&
+      procedure.status === "resolved" &&
+      typeof procedure.address === "string"
+        ? procedure.address
+        : item.address;
+    for (const limitation of item.limitations)
+      if (typeof limitation === "string")
+        limitations.push(`${address}: ${limitation}`);
+  }
+  return [...new Set(limitations)];
+};
 
 const batchProcedureLocations = (result: JsonValue): EvidenceLocation[] => {
   if (

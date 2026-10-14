@@ -153,6 +153,10 @@ Do not report the warm result as a cold-suite improvement, and do not enable
 the cache in coverage or benchmark CI without first showing that its
 instrumentation remains equivalent.
 
+Ghidra warning-comment extraction has a provider-independent Java producer check:
+`npm run test:ghidra-warnings` requires a caller-installed JDK 17+ and runs without
+a Ghidra installation. The static CI job runs it for code changes.
+
 ## Choose verification for the change
 
 | Change or claim                           | First check                                                   | Additional coverage                                         |

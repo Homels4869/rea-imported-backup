@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { INVESTIGATION_EXAMPLES } from "../contracts/investigationExamples.js";
-import { createEvidence, type Evidence } from "./evidence.js";
-import { jsonValueSchema, type JsonValue } from "./jsonValue.js";
+import {
+  FUNCTION_COMPARISON_EVIDENCE,
+  INVESTIGATION_EXAMPLES,
+} from "../contracts/investigationExamples.js";
+import { ARTIFACT_COMPARISON_EXAMPLE } from "../contracts/artifactComparisonExample.js";
+import {
+  createEvidence,
+  type Evidence,
+  type EvidenceProvider,
+} from "./evidence.js";
 import { FUNCTION_COMPARISON_EXAMPLE } from "../contracts/functionComparisonExample.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
+import { compareArtifacts } from "./artifactComparison.js";
+import type { JsonValue } from "./jsonValue.js";
+import { jsonValueSchema } from "./jsonValue.js";
 import { functionDossierSchema } from "./hopperValues.js";
 import { compareFunctions } from "./functionComparison.js";
 import {
@@ -114,6 +125,157 @@ const mapping = (
       },
     },
   ],
+});
+
+type FunctionComparisonOverrides = {
+  readonly provider?: EvidenceProvider;
+  readonly predicateType?: string;
+  readonly confidence?: Evidence["confidence"];
+  readonly authority?: Evidence["authority"];
+  readonly subject?: boolean;
+  readonly evidenceLinks?: string[];
+};
+
+const functionComparisonWith = (
+  overrides: FunctionComparisonOverrides = {},
+): Evidence =>
+  createEvidence(
+    overrides.subject
+      ? {
+          path: "/fixture/comparison",
+          sha256: "c".repeat(64),
+          format: "file",
+        }
+      : undefined,
+    overrides.provider ?? FUNCTION_COMPARISON_PROVIDER,
+    {
+      predicateType:
+        overrides.predicateType ?? FUNCTION_COMPARISON_EVIDENCE.predicate_type,
+      operation: FUNCTION_COMPARISON_EVIDENCE.operation,
+      parameters: FUNCTION_COMPARISON_EVIDENCE.parameters,
+      result: FUNCTION_COMPARISON_EVIDENCE.normalized_result,
+      confidence:
+        overrides.confidence ?? FUNCTION_COMPARISON_EVIDENCE.confidence,
+      authority: overrides.authority ?? FUNCTION_COMPARISON_EVIDENCE.authority,
+      evidenceLinks:
+        overrides.evidenceLinks ?? FUNCTION_COMPARISON_EVIDENCE.evidence_links,
+    },
+  );
+
+describe("static/runtime function comparison identity", () => {
+  it("accepts v2 Evidence and preserves the complete source closure", () => {
+    const result = correlateStaticAndRuntime(
+      mapping(processComparison("changed"), "cochanged"),
+    );
+    expect(result.correlations.items[0]?.evidence_links).toEqual(
+      expect.arrayContaining([
+        FUNCTION_COMPARISON_EVIDENCE.evidence_id,
+        FUNCTION_COMPARISON_EXAMPLE.left.evidence_id,
+        FUNCTION_COMPARISON_EXAMPLE.right.evidence_id,
+      ]),
+    );
+  });
+
+  it.each([
+    {
+      label: "revision 1",
+      provider: { ...FUNCTION_COMPARISON_PROVIDER, version: "1" },
+    },
+    {
+      label: "unsupported revision",
+      provider: { ...FUNCTION_COMPARISON_PROVIDER, version: "3" },
+    },
+    {
+      label: "foreign provider ID",
+      provider: {
+        ...FUNCTION_COMPARISON_PROVIDER,
+        id: "foreign-function-comparison",
+      },
+    },
+    {
+      label: "foreign provider name",
+      provider: {
+        ...FUNCTION_COMPARISON_PROVIDER,
+        name: "Foreign function comparison",
+      },
+    },
+    { label: "wrong predicate", predicateType: "rea.artifact-comparison" },
+    { label: "wrong confidence", confidence: "observed" as const },
+    { label: "wrong authority", authority: "shipped-artifact" as const },
+    { label: "subject-bound Evidence", subject: true },
+  ])("rejects $label", ({ label: _label, ...overrides }) => {
+    const comparison = functionComparisonWith(overrides);
+    expect(() =>
+      correlateStaticAndRuntime({
+        ...mapping(processComparison("changed"), "cochanged"),
+        static_comparisons: [comparison],
+      }),
+    ).toThrow(/provider, or citations disagree/u);
+  });
+
+  it("rejects incomplete comparison source links", () => {
+    const comparison = functionComparisonWith({ evidenceLinks: [] });
+    expect(() =>
+      correlateStaticAndRuntime({
+        ...mapping(processComparison("changed"), "cochanged"),
+        static_comparisons: [comparison],
+      }),
+    ).toThrow(/closure disagrees with its source parameters/u);
+  });
+});
+
+describe("static/runtime comparison compatibility controls", () => {
+  it("continues accepting artifact comparison revision 1", () => {
+    const { left, right } = ARTIFACT_COMPARISON_EXAMPLE;
+    const result = compareArtifacts(left, right);
+    const comparison = createEvidence(
+      undefined,
+      {
+        id: "rea-artifact-comparison",
+        name: "REA artifact comparison",
+        version: "1",
+      },
+      {
+        predicateType: "rea.artifact-comparison",
+        operation: "compare_artifacts",
+        parameters: {
+          left_evidence_ids: [left.evidence_id],
+          right_evidence_ids: [right.evidence_id],
+        },
+        result,
+        confidence: "derived",
+        authority: "analyst-inference",
+        evidenceLinks: [left.evidence_id, right.evidence_id],
+      },
+    );
+    const change = result.changes[0];
+    if (change === undefined)
+      throw new Error("Missing artifact comparison change");
+    const runtime = processComparison("unchanged");
+    const correlated = correlateStaticAndRuntime({
+      static_comparisons: [comparison],
+      runtime_comparisons: [runtime],
+      mappings: [
+        {
+          static: {
+            comparison_evidence_id: comparison.evidence_id,
+            selector: { kind: "artifact", logical_path: change.logical_path },
+          },
+          runtime: {
+            comparison_evidence_id: runtime.evidence_id,
+            dimension: "terminal",
+          },
+          side_alignment: "left_to_left",
+          hypothesis: {
+            statement:
+              "The artifact change is associated with terminal behavior.",
+            expected_pattern: "static_only",
+          },
+        },
+      ],
+    });
+    expect(correlated.status).toBe("correlated");
+  });
 });
 
 it("keeps text, assembly and unavailable CFG caveats on their selected correlations", () => {

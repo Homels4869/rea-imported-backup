@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { traceNativeValues } from "./NativeValueTrace.js";
+import { createWorkflowEvidence } from "../WorkflowEvidence.js";
 import {
   createAnalysisExecution,
   type AnalysisOperationPort,
@@ -106,6 +107,66 @@ const analysis: AnalysisOperationPort = {
     );
   },
 };
+it("retains warnings for the seed and a reached callee in trace unknowns and workflow Evidence", async () => {
+  const warned: AnalysisOperationPort = {
+    execute: async (operation, parameters, options) => {
+      const execution = await analysis.execute(operation, parameters, options);
+      if (!execution.ok || operation !== "analyze_function") return execution;
+      const dossier = functionDossierSchema.parse(execution.value.result);
+      const callee = parameters.procedure === "0x2000";
+      return ok(
+        createAnalysisExecution(
+          jsonValueSchema.parse({
+            ...dossier,
+            decompiler_completeness: {
+              ...dossier.decompiler_completeness,
+              status: "warnings",
+              warning_count: callee ? 0 : 1,
+              warnings: callee
+                ? []
+                : ["Removing unreachable block (ram,0x1010)"],
+              diagnostic: callee ? "Callee decompiler diagnostic" : null,
+            },
+          }),
+          provider,
+          { subject },
+        ),
+      );
+    },
+  };
+  const execution = await traceNativeValues(warned, { procedure: "0x1000" });
+  if (!execution.ok) throw execution.error;
+  const result = nativeValueTraceSchema.parse(execution.value);
+  expect(result.unknowns).toEqual(
+    expect.arrayContaining([
+      {
+        procedure: "0x1000",
+        address: null,
+        reason: "Decompiler warning: Removing unreachable block (ram,0x1010)",
+      },
+      {
+        procedure: "0x2000",
+        address: null,
+        reason: "Decompiler diagnostic: Callee decompiler diagnostic",
+      },
+    ]),
+  );
+  expect(result.nodes).not.toHaveLength(0);
+  const evidence = createWorkflowEvidence({
+    target: undefined,
+    operation: "trace_native_values",
+    parameters: { procedure: "0x1000" },
+    result: execution.value,
+    upstreamProfile: undefined,
+    upstreamLimitations: [],
+  });
+  expect(evidence.limitations).toEqual(
+    expect.arrayContaining([
+      "0x1000: Decompiler warning: Removing unreachable block (ram,0x1010)",
+      "0x2000: Decompiler diagnostic: Callee decompiler diagnostic",
+    ]),
+  );
+});
 describe("native value parameter-use node membership", () => {
   it("retains only parameter uses whose parameter nodes fit the node budget", async () => {
     const operationCount = 3_000;

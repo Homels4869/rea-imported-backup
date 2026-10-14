@@ -34,6 +34,16 @@ const dossier = (
       locals: [],
     },
     pseudocode: text,
+    // This synthetic producer explicitly observes its warning coverage.
+    decompiler_completeness: {
+      status: "no-warnings-reported",
+      provenance: "fixture-warning-observations",
+      warning_count: 0,
+      warnings: [],
+      diagnostic: null,
+      dropped_blocks: [],
+      disassembly_available: true,
+    },
     assembly: ["ret"],
     comments: [],
     callers: [],
@@ -170,6 +180,60 @@ const keepsGeneratedNamesAmbiguous = (): void => {
   expect(stable.function_match.status).toBe("mismatched");
   expect(stable.status).toBe("changed");
 };
+
+it.each(["ghidra", "fixture"])(
+  "keeps legacy %s pseudocode unknown without parsing authored warning text",
+  (provider) => {
+    const value = dossier(
+      "/* WARNING: authored or automatic; ownership unknown */ return 7;",
+      "0x1000",
+    );
+    delete value.decompiler_completeness;
+    const evidence = observe("a", value, provider);
+    const result = compareFunctions(evidence, evidence);
+    expect(
+      result.dimensions.find((item) => item.dimension === "pseudocode"),
+    ).toMatchObject({
+      status: "unknown",
+      limitations: expect.arrayContaining([
+        expect.stringContaining("warning coverage"),
+      ]),
+    });
+    expect(
+      result.dimensions.find((item) => item.dimension === "assembly"),
+    ).toMatchObject({ status: "unchanged" });
+  },
+);
+
+it("keeps identical pseudocode unresolved when the decompiler reported omissions", () => {
+  const value = dossier("return 7;", "0x1000");
+  value.decompiler_completeness = {
+    status: "warnings",
+    provenance: "ghidra-decompiler-warning-observations",
+    warning_count: 1,
+    warnings: ["Removing unreachable block (ram,0x1010)"],
+    diagnostic: null,
+    dropped_blocks: [
+      {
+        start: "0x1010",
+        end: null,
+        address_space: "ram",
+        reason: "unreachable",
+        reported_offset: "0x1010",
+        warning_index: 0,
+      },
+    ],
+    disassembly_available: true,
+  };
+  const evidence = observe("a", value, "ghidra");
+  const result = compareFunctions(evidence, evidence);
+  expect(
+    result.dimensions.find((item) => item.dimension === "pseudocode"),
+  ).toMatchObject({ status: "unknown" });
+  expect(
+    result.dimensions.find((item) => item.dimension === "assembly"),
+  ).toMatchObject({ status: "unchanged" });
+});
 
 describe("function comparison normalized identity", () => {
   it("retains unresolved call details alongside missing facet coverage", () => {

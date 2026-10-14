@@ -1,4 +1,5 @@
 import type { FunctionDossier } from "../../domain/hopperValues.js";
+import { decompilerObservationLimitations } from "../../domain/native/decompilerCompleteness.js";
 import {
   nativeApiInspectionResultSchema,
   type NativeApiBoundary,
@@ -23,9 +24,19 @@ export const projectNativeApiInspection = (
   const unsupportedBranches = boundary.available
     ? []
     : ["structured-boundary-types", "jump-table-data-mapping"];
-  const residualUnknowns = boundary.available
+  const boundaryUnknowns = boundary.available
     ? availableResidualUnknowns(boundary)
     : boundary.residual_unknowns;
+  const warnings = decompilerObservationLimitations(
+    dossier.decompiler_completeness,
+  );
+  const residualUnknowns = [
+    ...boundaryUnknowns,
+    ...warnings.map(
+      (warning) =>
+        `Can decompiler-derived API observations be confirmed despite ${warning}?`,
+    ),
+  ];
   return nativeApiInspectionResultSchema.parse({
     procedure: {
       address: dossier.procedure.address,
@@ -64,6 +75,10 @@ export const projectNativeApiInspection = (
     ],
     unsupported_branches: unsupportedBranches,
     residual_unknowns: residualUnknowns,
+    limitations: [
+      ...(boundary.available ? boundary.limitations : [boundary.reason]),
+      ...warnings,
+    ],
   });
 };
 

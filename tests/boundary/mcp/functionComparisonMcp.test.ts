@@ -9,6 +9,7 @@ import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
 import { compareFunctions } from "../../../src/domain/functionComparison.js";
 import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "../../../src/domain/functionComparisonProvider.js";
 
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
 import { FUNCTION_COMPARISON_EXAMPLE } from "../../../src/contracts/functionComparisonExample.js";
@@ -340,11 +341,7 @@ it.each([
           );
     const result = compareFunctions(left, right);
     expect(result.status).toBe(status);
-    const provider = {
-      id: "rea-function-comparison",
-      name: "REA function comparison",
-      version: "1",
-    };
+    const provider = FUNCTION_COMPARISON_PROVIDER;
     const observation = {
       operation: "compare_functions",
       predicateType: "rea.function-comparison",

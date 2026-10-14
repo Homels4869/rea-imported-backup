@@ -41,6 +41,7 @@ import {
   reconstructionUnknownHeads,
 } from "./reconstructionUnknowns.js";
 import type { ResidualUnknown } from "./residualUnknown.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
 
 const providers = {
   behavioral: {
@@ -51,14 +52,14 @@ const providers = {
   "structural-function": {
     operation: "compare_functions",
     predicates: ["rea.function-comparison"],
-    id: "rea-function-comparison",
-    name: "REA function comparison",
+    ...FUNCTION_COMPARISON_PROVIDER,
   },
   "structural-artifact": {
     operation: "compare_artifacts",
     predicates: ["rea.artifact-comparison"],
     id: "rea-artifact-comparison",
     name: "REA artifact comparison",
+    version: "1",
   },
 } as const;
 
@@ -236,7 +237,7 @@ const validateComparisonIdentity = (claim: Claim, evidence: Evidence): void => {
       ? !isProcessEvidenceProvider(evidence.provider)
       : evidence.provider.id !== expected.id ||
         evidence.provider.name !== expected.name ||
-        evidence.provider.version !== "1") ||
+        evidence.provider.version !== expected.version) ||
     evidence.confidence !== "derived" ||
     evidence.authority !== "analyst-inference" ||
     evidence.subject !== null

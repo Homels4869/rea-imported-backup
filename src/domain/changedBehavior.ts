@@ -12,6 +12,7 @@ import {
 } from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
 import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
 import {
   PROCESS_PROVIDER,
   isProcessEvidenceProvider,
@@ -124,9 +125,7 @@ const EXPECTED_PROVIDERS = {
   },
   compare_functions: {
     predicates: ["rea.function-comparison"],
-    id: "rea-function-comparison",
-    name: "REA function comparison",
-    version: "1",
+    ...FUNCTION_COMPARISON_PROVIDER,
   },
 } as const;
 

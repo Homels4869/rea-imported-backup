@@ -43,6 +43,143 @@ const parseFunctionValueFixture = (
   return parsed.ok ? { ok: true as const, value: parsed.value.value } : parsed;
 };
 
+it("lifts refreshed annotation dossier limitations into its Evidence boundary", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const warning =
+    "Ghidra pseudocode warning: Removing unreachable block (ram,0x401020)";
+  dossier.limitations.push(warning);
+  const result = parseGhidraFunctionResult(
+    "annotate_native_function",
+    jsonValueSchema.parse({
+      annotations: {
+        address: dossier.procedure.address,
+        name: dossier.procedure.name,
+        comment: "owned fixture",
+        inline_comment: null,
+      },
+      dossier,
+      effects: {
+        scope: "session-analysis-database",
+        source_bytes_modified: false,
+        persists_after_close: false,
+      },
+    }),
+  );
+  if (!result.ok) throw result.error;
+  expect(result.value.limitations).toContain(warning);
+  expect(result.value.value).toMatchObject({
+    dossier: { limitations: expect.arrayContaining([warning]) },
+  });
+});
+
+it("retains unresolved offsets and refuses missing offsets from new Ghidra wire records", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const block = {
+    start: null,
+    end: null,
+    address_space: "unknown",
+    reported_offset: "0xdead",
+    reason: "unreachable",
+    warning_index: 0,
+  };
+  const wire = {
+    ...dossier,
+    decompiler_completeness: {
+      status: "warnings",
+      provenance: "ghidra-decompiler-warning-observations",
+      warning_count: 1,
+      warnings: ["Removing unreachable block (unknown,0xdead)"],
+      diagnostic: null,
+      dropped_blocks: [block],
+      disassembly_available: true,
+    },
+  };
+  const parsed = parseFunctionValueFixture(
+    "analyze_function",
+    jsonValueSchema.parse(wire),
+  );
+  expect(parsed).toMatchObject({
+    ok: true,
+    value: { decompiler_completeness: { dropped_blocks: [block] } },
+  });
+  const legacy = {
+    ...wire,
+    decompiler_completeness: {
+      ...wire.decompiler_completeness,
+      dropped_blocks: [{ ...block, reported_offset: undefined }],
+    },
+  };
+  const retained = functionDossierSchema.parse(legacy);
+  expect(
+    retained.decompiler_completeness?.dropped_blocks[0]?.reported_offset,
+  ).toBeNull();
+  expect(
+    parseFunctionValueFixture(
+      "analyze_function",
+      jsonValueSchema.parse(retained),
+    ),
+  ).toMatchObject({ ok: false });
+});
+describe("Ghidra function-analysis result values", () => {
+  it("keeps Ghidra producer provenance validation at the adapter boundary", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    const foreign = functionDossierSchema.parse({
+      ...dossier,
+      decompiler_completeness: {
+        ...dossier.decompiler_completeness,
+        provenance: "independent-warning-producer",
+      },
+    });
+    expect(
+      parseFunctionValueFixture(
+        "analyze_function",
+        jsonValueSchema.parse(foreign),
+      ),
+    ).toMatchObject({ ok: false });
+  });
+  it("preserves decompiler warning locations and rejects inconsistent counts", () => {
+    const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+    dossier.decompiler_completeness = {
+      status: "warnings",
+      provenance: "ghidra-decompiler-warning-observations",
+      warning_count: 1,
+      warnings: ["Removing unreachable block (ram,0x00401008)"],
+      diagnostic: null,
+      dropped_blocks: [
+        {
+          start: "0x401008",
+          end: null,
+          address_space: "ram",
+          reported_offset: "0x00401008",
+          reason: "unreachable",
+          warning_index: 0,
+        },
+      ],
+      disassembly_available: true,
+    };
+    const parsed = parseFunctionValueFixture(
+      "analyze_function",
+      jsonValueSchema.parse(dossier),
+    );
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value).toMatchObject({
+      decompiler_completeness: dossier.decompiler_completeness,
+    });
+    expect(
+      parseFunctionValueFixture(
+        "analyze_function",
+        jsonValueSchema.parse({
+          ...dossier,
+          decompiler_completeness: {
+            ...dossier.decompiler_completeness,
+            warning_count: 2,
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: false });
+  });
+});
+
 describe("Ghidra unresolved call locations", () => {
   it("rejects a noncanonical unresolved call site rather than retaining unverifiable location evidence", () => {
     expect(

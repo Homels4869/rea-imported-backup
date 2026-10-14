@@ -26,6 +26,7 @@ import {
 } from "../domain/jsonValue.js";
 import { nativeApiBoundarySchema } from "../domain/native/nativeApiBoundary.js";
 import { nativeValueFlowSchema } from "../domain/native/nativeValueFlow.js";
+import { decompilerCompletenessSchema } from "../domain/native/decompilerCompleteness.js";
 import type { EvidenceLocation } from "../domain/evidence.js";
 import {
   relationshipCoverageSchema,
@@ -294,9 +295,25 @@ const ghidraFunctionDossier = functionDossierSchema
     }),
     native_api: ghidraNativeApiBoundary,
     native_value_flow: ghidraNativeValueFlow,
+    decompiler_completeness: decompilerCompletenessSchema.refine(
+      ({ provenance }) =>
+        provenance === "ghidra-decompiler-warning-observations",
+      "Ghidra warning observations require Ghidra producer provenance",
+    ),
   })
   .strict()
   .superRefine((value, context) => {
+    if (
+      value.decompiler_completeness.dropped_blocks.some(
+        (block) => block.reported_offset === null,
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Ghidra dropped-block observations must preserve reported offsets",
+      });
+
     if (
       (value.swift_string_literals === undefined) !==
       (value.swift_string_literal_omissions === undefined)
@@ -308,6 +325,9 @@ const ghidraFunctionDossier = functionDossierSchema
       });
     const addresses = [
       value.procedure.address,
+      ...value.decompiler_completeness.dropped_blocks.flatMap(({ start }) =>
+        start === null ? [] : [start],
+      ),
       ...value.comments.map(({ address }) => address),
       ...value.callers.map(({ address }) => address),
       ...value.callees.map(({ address }) => address),
@@ -434,6 +454,12 @@ const functionObservationEnvelope = z.strictObject({
     .exactOptional(),
 });
 
+// The annotation result already validates the full refreshed dossier. Extract
+// its producer limitations without another traversal of the dossier graph.
+const annotationLimitationsProjection = z.object({
+  dossier: z.object({ limitations: z.array(z.string()) }),
+});
+
 export interface ParsedGhidraFunctionResult {
   readonly value: JsonValue;
   readonly limitations: readonly string[];
@@ -480,7 +506,11 @@ export const parseGhidraFunctionResult = (
   return parsed.success
     ? ok({
         value: jsonValueSchema.parse(parsed.data),
-        limitations: observation.limitations,
+        limitations:
+          operation === "annotate_native_function"
+            ? annotationLimitationsProjection.parse(parsed.data).dossier
+                .limitations
+            : observation.limitations,
         ...(observation.relationship_coverage === undefined
           ? {}
           : { relationshipCoverage: observation.relationship_coverage }),

@@ -424,6 +424,54 @@ describe("enhanced MCP batch cancellation", () => {
   });
 });
 
+it("retains per-item provider limitations for successful and empty pseudocode reads in batch Evidence", async () => {
+  const client = await connect({
+    execute: async (name, input) => {
+      if (name === "procedure_address")
+        return relationshipExecution(
+          input.procedure === "alias" ? "0x1" : "0x2",
+        );
+      if (name === "address_name") return relationshipExecution(null);
+      if (name !== "procedure_pseudo_code")
+        throw new Error(`Unexpected operation: ${name}`);
+      return relationshipExecution(
+        input.procedure === "0x1" ? "return 7;" : "",
+        [
+          input.procedure === "0x1"
+            ? "Provider reported a removed block"
+            : "Provider returned a diagnostic with no recovered C",
+        ],
+      );
+    },
+  });
+  const result = await client.callTool({
+    name: "batch_decompile",
+    arguments: { addresses: ["alias", "empty"] },
+  });
+  expect(result.isError).not.toBe(true);
+  expect(result.structuredContent).toMatchObject({
+    normalized_result: {
+      items: [
+        {
+          address: "alias",
+          procedure: { address: "0x1" },
+          status: "ok",
+          limitations: ["Provider reported a removed block"],
+        },
+        {
+          address: "empty",
+          procedure: { address: "0x2" },
+          status: "error",
+          limitations: ["Provider returned a diagnostic with no recovered C"],
+        },
+      ],
+    },
+    limitations: expect.arrayContaining([
+      "0x1: Provider reported a removed block",
+      "0x2: Provider returned a diagnostic with no recovered C",
+    ]),
+  });
+});
 describe("enhanced MCP batches", () => {
   it("returns every batch item in caller order with its own result", async () => {
     const addresses = Array.from(
@@ -497,12 +545,14 @@ describe("enhanced MCP batches", () => {
           address: "0x1",
           procedure: { status: "resolved", address: "0x1", name: null },
           status: "ok",
+          limitations: [],
           pseudocode: "pseudo",
         },
         {
           address: "0x2",
           procedure: { status: "resolved", address: "0x2", name: null },
           status: "error",
+          limitations: [],
           error: {
             code: "unreadable_output",
             category: "execution_failure",

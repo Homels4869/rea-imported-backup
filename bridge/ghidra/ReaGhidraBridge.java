@@ -914,6 +914,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private void initializeDecompiler() {
         DecompileOptions options = new DecompileOptions();
         options.setMaxInstructions(Integer.MAX_VALUE);
+        // Keep authored Listing comments in dossier.comments, separate from
+        // provider-generated diagnostics. Render only automatic C warnings.
+        options.setPRECommentIncluded(false);
+        options.setPLATECommentIncluded(false);
+        options.setPOSTCommentIncluded(false);
+        options.setEOLCommentIncluded(false);
+        options.setHeadCommentIncluded(false);
+        options.setWARNCommentIncluded(true);
+        options.setCommentStyle(DecompileOptions.CommentStyleEnum.CStyle);
         decompiler = new DecompInterface();
         decompiler.setOptions(options);
         decompiler.toggleCCode(true);
@@ -931,13 +940,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
         JsonObject selection = new JsonObject();
         Function function = resolveDecompileProcedure(selector, selection);
         try {
-            String value = decompiledText(decompile(function));
+            DecompileResults decompilation = decompile(function);
+            String value = decompiledText(decompilation);
+            List<String> limitations = new ArrayList<>(noReturnCallLimitations(
+                function, currentProgram.getListing().getInstructions(function.getBody(), true)
+            ));
+            limitations.addAll(decompilerLimitations(decompilerCompleteness(decompilation, value, !function.getBody().isEmpty())));
             JsonObject result = functionObservation(
                 value == null ? JsonNull.INSTANCE : GSON.toJsonTree(value),
-                noReturnCallLimitations(
-                    function,
-                    currentProgram.getListing().getInstructions(function.getBody(), true)
-                )
+                limitations
             );
             if (selection.size() > 0) result.add("selection", selection);
             return result;
@@ -1576,6 +1587,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         JsonObject result = new JsonObject();
         result.add("procedure", procedure);
         result.addProperty("pseudocode", pseudocode);
+        JsonObject completeness = decompilerCompleteness(decompilation, pseudocode, !scan.instructions.isEmpty());
+        result.add("decompiler_completeness", completeness);
         result.add("assembly", assembly);
         result.add("comments", comments);
         result.add("callers", callers);
@@ -1639,10 +1652,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         for (String limitation : calls.limitations()) {
             limitations.add(limitation);
         }
-        if (decompilation != null && decompilation.getErrorMessage() != null &&
-            !decompilation.getErrorMessage().isBlank()) {
-            limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
-        }
+        List<String> completenessLimits = decompilerLimitations(completeness);
+        for (String limitation : completenessLimits) limitations.add(limitation);
         result.add("limitations", limitations);
         monitor.checkCancelled();
         int missingCallers = 0;
@@ -1650,7 +1661,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
             monitor.checkCancelled();
             if (unrepresentedCaller(reference, callerFunctions)) missingCallers++;
         }
-        return new FunctionAnalysisObservation(result, calls.limitations(),
+        List<String> observationLimits = new ArrayList<>(calls.limitations());
+        observationLimits.addAll(completenessLimits);
+        return new FunctionAnalysisObservation(result, observationLimits,
             callRelationshipCoverage(calls, missingCallers));
     }
 
@@ -3331,6 +3344,51 @@ public final class ReaGhidraBridge extends HeadlessScript {
         }
         DecompiledFunction value = results.getDecompiledFunction();
         return value == null ? null : value.getC();
+    }
+
+    private JsonObject decompilerCompleteness(DecompileResults results, String pseudocode, boolean assemblyAvailable) {
+        var observation = ReaGhidraDecompilerWarnings.observe(pseudocode,
+            results == null ? null : results.getErrorMessage(), results != null, raw -> {
+                Address address = currentProgram.getAddressFactory().getAddress(raw);
+                return address == null ? null : canonicalAddress(address);
+            });
+        JsonArray warnings = GSON.toJsonTree(observation.warnings()).getAsJsonArray();
+        JsonArray dropped = new JsonArray();
+        for (var item : observation.droppedBlocks()) {
+            JsonObject block = new JsonObject();
+            block.add("start", item.start() == null ? JsonNull.INSTANCE : GSON.toJsonTree(item.start()));
+            block.add("end", JsonNull.INSTANCE);
+            block.addProperty("address_space", item.addressSpace());
+            block.addProperty("reported_offset", item.reportedOffset());
+            block.addProperty("reason", "unreachable");
+            block.addProperty("warning_index", item.warningIndex());
+            dropped.add(block);
+        }
+        String diagnostic = observation.diagnostic();
+        JsonObject result = new JsonObject();
+        result.addProperty("status", observation.status());
+        result.addProperty("provenance", "ghidra-decompiler-warning-observations");
+        result.addProperty("warning_count", warnings.size());
+        result.add("warnings", warnings);
+        result.add("diagnostic", diagnostic == null ? JsonNull.INSTANCE : GSON.toJsonTree(diagnostic));
+        result.add("dropped_blocks", dropped);
+        result.addProperty("disassembly_available", assemblyAvailable);
+        return result;
+    }
+
+    private List<String> decompilerLimitations(JsonObject observation) {
+        List<String> limitations = new ArrayList<>();
+        if (observation.get("status").getAsString().equals("unavailable")) {
+            limitations.add("Ghidra decompiler output is unavailable for this function.");
+        }
+        for (JsonElement warning : observation.getAsJsonArray("warnings")) {
+            limitations.add("Ghidra pseudocode warning: " + warning.getAsString());
+        }
+        if (!observation.get("diagnostic").isJsonNull()) {
+            limitations.add("Ghidra decompiler diagnostic: " + observation.get("diagnostic").getAsString());
+        }
+        limitations.add("Decompiler warnings are provider observations; no warnings does not establish complete control-flow recovery. Dropped-block end addresses are unknown.");
+        return limitations;
     }
 
     private InstructionScan scanInstructions(Function function, int maximum) throws Exception {

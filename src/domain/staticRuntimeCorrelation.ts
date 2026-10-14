@@ -12,6 +12,7 @@ import {
 } from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
 import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
+import { FUNCTION_COMPARISON_PROVIDER } from "./functionComparisonProvider.js";
 import {
   PROCESS_PROVIDER,
   isProcessEvidenceProvider,
@@ -145,23 +146,31 @@ type Mapping = z.infer<typeof mappingSchema>;
 type CorrelationItem = z.infer<typeof correlationItemSchema>;
 type ComparisonStatus = z.infer<typeof comparisonStatusSchema>;
 
-type ComparisonIdentity = readonly [string | readonly string[], string, string];
+type ComparisonIdentity = readonly [
+  string | readonly string[],
+  string,
+  string,
+  string,
+];
 
 const EXPECTED: Readonly<Record<string, ComparisonIdentity>> = {
   compare_artifacts: [
     "rea.artifact-comparison",
     "rea-artifact-comparison",
     "REA artifact comparison",
+    "1",
   ],
   compare_functions: [
     "rea.function-comparison",
-    "rea-function-comparison",
-    "REA function comparison",
+    FUNCTION_COMPARISON_PROVIDER.id,
+    FUNCTION_COMPARISON_PROVIDER.name,
+    FUNCTION_COMPARISON_PROVIDER.version,
   ],
   compare_process_captures: [
     "rea.process-comparison",
     PROCESS_PROVIDER.id,
     PROCESS_PROVIDER.name,
+    PROCESS_PROVIDER.version,
   ],
 };
 
@@ -391,7 +400,7 @@ const assertComparisonIdentity = (evidence: Evidence): void => {
       ? !isProcessEvidenceProvider(evidence.provider)
       : evidence.provider.id !== expected[1] ||
         evidence.provider.name !== expected[2] ||
-        evidence.provider.version !== "1") ||
+        evidence.provider.version !== expected[3]) ||
     evidence.confidence !== "derived" ||
     evidence.authority !== "analyst-inference" ||
     evidence.subject !== null

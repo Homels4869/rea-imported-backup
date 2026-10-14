@@ -7,6 +7,7 @@ import type { JsonValue } from "./jsonValue.js";
 import { err, ok, type Result } from "./result.js";
 import { nativeApiBoundarySchema } from "./native/nativeApiBoundary.js";
 import { nativeValueFlowSchema } from "./native/nativeValueFlow.js";
+import { decompilerCompletenessSchema } from "./native/decompilerCompleteness.js";
 import { AnalysisOutputError } from "./analysisErrorCore.js";
 
 export interface AddressedName {
@@ -371,6 +372,7 @@ export const functionDossierSchema = z
       locals: z.array(localVariableSchema),
     }),
     pseudocode: z.string(),
+    decompiler_completeness: decompilerCompletenessSchema.exactOptional(),
     assembly: z.array(z.string()),
     comments: z.array(
       z

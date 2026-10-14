@@ -15,6 +15,58 @@ import {
   type GhidraFunctionOperation,
 } from "../../../src/ghidra/GhidraFunctionValues.js";
 
+it("preserves structured decompiler warnings through MCP Evidence and snapshot replay", async () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const warning = "Removing unreachable block (ram,0x00401008)";
+  dossier.decompiler_completeness = {
+    status: "warnings",
+    provenance: "ghidra-decompiler-warning-observations",
+    warning_count: 1,
+    warnings: [warning],
+    diagnostic: null,
+    dropped_blocks: [
+      {
+        start: "0x401008",
+        end: null,
+        address_space: "ram",
+        reason: "unreachable",
+        reported_offset: "0x401008",
+        warning_index: 0,
+      },
+    ],
+    disassembly_available: true,
+  };
+  const harness = await connectGhidraMcp("ghidra-decompiler-warnings", () =>
+    Promise.resolve(
+      ok({ value: jsonValueSchema.parse(dossier), limitations: [warning] }),
+    ),
+  );
+  try {
+    const reply = await harness.mcp.callTool({
+      name: "analyze_function",
+      arguments: { procedure: dossier.procedure.address },
+    });
+    expect(reply.isError).not.toBe(true);
+    const evidence = sessionEvidence(harness.session, reply.structuredContent);
+    expect(evidence.normalized_result).toMatchObject({
+      decompiler_completeness: dossier.decompiler_completeness,
+    });
+    expect(evidence.analysis_profile?.parameters).toMatchObject({
+      decompiler_completeness: "ghidra-warning-observations-v6",
+    });
+    const replay = await harness.session.execute(
+      "analyze_function",
+      evidence.parameters,
+    );
+    if (!replay.ok) throw replay.error;
+    expect(replay.value.result).toMatchObject({
+      decompiler_completeness: dossier.decompiler_completeness,
+    });
+    expect(harness.calls).toEqual(["analyze_function"]);
+  } finally {
+    await harness.close();
+  }
+});
 it.each([
   { pseudocodeAvailable: true, reportsCoverage: true },
   { pseudocodeAvailable: false, reportsCoverage: true },

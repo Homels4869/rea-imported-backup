@@ -4,6 +4,48 @@ import { functionDossierSchema } from "../../domain/hopperValues.js";
 import { ghidraFunctionDossier } from "../../domain/ghidraValues.fixture.js";
 import { nativeApiBoundarySchema } from "../../domain/native/nativeApiBoundary.js";
 import { projectNativeApiInspection } from "./NativeApiInspection.js";
+import { createWorkflowEvidence } from "../WorkflowEvidence.js";
+import { jsonValueSchema } from "../../domain/jsonValue.js";
+
+it.each([
+  "ghidra-decompiler-warning-observations",
+  "independent-warning-producer",
+])("keeps %s warnings inline and in API workflow Evidence", (provenance) => {
+  const base = functionDossierSchema.parse(ghidraFunctionDossier());
+  const dossier = functionDossierSchema.parse({
+    ...base,
+    decompiler_completeness: {
+      ...base.decompiler_completeness,
+      provenance,
+      status: "warnings",
+      warning_count: 1,
+      warnings: ["Removing unreachable block (ram,0x401020)"],
+      diagnostic: "Incomplete type recovery",
+    },
+  });
+  const result = projectNativeApiInspection(dossier);
+  expect(result.boundary).toEqual(dossier.native_api);
+  expect(result.residual_unknowns).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("Removing unreachable block"),
+      expect.stringContaining("Incomplete type recovery"),
+    ]),
+  );
+  const evidence = createWorkflowEvidence({
+    target: undefined,
+    operation: "inspect_native_api",
+    parameters: { procedure: dossier.procedure.address },
+    result: jsonValueSchema.parse(result),
+    upstreamProfile: undefined,
+    upstreamLimitations: [],
+  });
+  expect(evidence.limitations).toEqual(
+    expect.arrayContaining([
+      "Decompiler warning: Removing unreachable block (ram,0x401020)",
+      "Decompiler diagnostic: Incomplete type recovery",
+    ]),
+  );
+});
 
 describe("native API switch uncertainty", () => {
   it("reports an unevidenced default path independently of known numeric cases", () => {

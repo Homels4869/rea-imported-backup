@@ -152,6 +152,9 @@ jobs:
       - name: Check LLDB producer retention and launch contracts
         if: needs.changes.outputs.code == 'true'
         run: npm run test:python
+      - name: Test Ghidra decompiler warning producer
+        if: needs.changes.outputs.code == 'true'
+        run: npm run test:ghidra-warnings
       - if: needs.changes.outputs.code != 'true'
         run: npm run format:check
       - name: Save validated static task cache
