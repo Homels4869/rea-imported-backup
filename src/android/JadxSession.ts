@@ -9,6 +9,7 @@ import {
   AnalysisCapabilityUnavailableError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
@@ -19,12 +20,14 @@ import { JadxMcpTransport, type JadxLauncher } from "./JadxMcpTransport.js";
 import {
   jadxLoadSchema,
   jadxInputFailureSchema,
+  jadxHeapExhausted,
   jadxRuntimeSchema,
   parseJadxEnvelope,
   parseJadxJson,
 } from "./JadxProtocol.js";
 import {
   JADX_BRIDGE_IDENTITY,
+  JADX_HEAP_EXHAUSTION_REMEDIATION,
   JADX_RELEASE,
   JADX_PROVIDER_IDENTITY,
   JADX_LIMITATIONS,
@@ -53,6 +56,12 @@ export class JadxSession {
   #serverName: string | null = null;
   #serverVersion: string | null = null;
   #engineVersion: string | null = null;
+  /**
+   * Heap the engine reported for this run. It stays null until `rea_jvm_status`
+   * answers, so a failure of that call reports an unknown limit rather than a
+   * measured one.
+   */
+  #observedMaxHeapBytes: number | null = null;
 
   constructor(
     options: Omit<OwnedProviderProcessSpawnOptions, "runId" | "stdin">,
@@ -82,6 +91,7 @@ export class JadxSession {
     this.#serverName = null;
     this.#serverVersion = null;
     this.#engineVersion = null;
+    this.#observedMaxHeapBytes = null;
     const abort = () => {
       void this.transport.close().catch(() => undefined);
     };
@@ -110,6 +120,7 @@ export class JadxSession {
         await tools.json("rea_jvm_status", {}),
       );
       this.#engineVersion = runtime.engine_reported_version;
+      this.#observedMaxHeapBytes = runtime.max_heap_bytes;
       if (runtime.engine_reported_version !== JADX_RELEASE.version)
         throw new AnalysisCapabilityUnavailableError(
           "jadx",
@@ -234,6 +245,29 @@ export class JadxSession {
               },
             ]);
         }
+        if (jadxHeapExhausted(envelope.text))
+          throw new AnalysisResourceConstraintError(
+            request.operation,
+            "memory",
+            `JADX reported JVM heap exhaustion during ${name}`,
+            {
+              upstream_operation: name,
+              // Named for what it is: the JVM's reported maximum, which the
+              // engine can report differently from the requested -Xmx.
+              observed_max_heap_bytes: this.#observedMaxHeapBytes,
+              target_path: target.path,
+              target_sha256: target.sha256,
+            },
+            {
+              remediationAction: JADX_HEAP_EXHAUSTION_REMEDIATION,
+              diagnostics: {
+                upstream_operation: name,
+                reason: envelope.text,
+                target_path: target.path,
+                target_sha256: target.sha256,
+              },
+            },
+          );
         throw new ProviderAdapterError("jadx", request.operation, {
           diagnostics: {
             upstream_operation: name,

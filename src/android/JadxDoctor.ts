@@ -50,9 +50,33 @@ export const inspectJadxProvider = async (
               environment.REA_JADX_ACTIVE_PROCESSOR_COUNT,
             ),
           },
-    checks: [configurationCheck(configured, availability, jarPath)],
+    checks: [
+      configurationCheck(configured, availability, jarPath),
+      ...(available ? [heapCheck(environment.REA_JADX_HEAP_MIB)] : []),
+    ],
   };
 };
+
+/**
+ * Report the heap the provider will ask the JVM for. Doctor reads configuration
+ * and never starts the engine, so an unset setting reports that REA asks for no
+ * heap rather than a measured one, and whether one APK fits stays unknown until
+ * JADX loads it. This check therefore never fails the provider: it states the
+ * request so a too-small explicit value is visible here.
+ */
+const heapCheck = (
+  configuredHeapMib: string | undefined,
+): DoctorProviderCheck => ({
+  name: "heap",
+  ok: true,
+  code: null,
+  detail:
+    configuredHeapMib === undefined
+      ? "REA_JADX_HEAP_MIB is unset, so REA asks for no heap of its own and the worker heap is whatever the launching environment provides: the JVM's own ergonomics, typically a quarter of the memory the JVM sees, or a heap set through JAVA_TOOL_OPTIONS, JDK_JAVA_OPTIONS or _JAVA_OPTIONS, which REA passes through unchanged. Set REA_JADX_HEAP_MIB when a large APK exhausts the worker."
+      : `REA_JADX_HEAP_MIB requests ${configuredHeapMib} MiB for the JADX worker. Whether a given APK fits in that heap is only known once the engine loads it.`,
+  remediation: null,
+  classification: "config_drift",
+});
 
 /**
  * Publish a caller-selected variable only when explicitly set; never persist

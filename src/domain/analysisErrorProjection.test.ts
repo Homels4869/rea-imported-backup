@@ -272,6 +272,49 @@ it.each([
     );
   },
 );
+
+it("keeps a provider's heap remediation instead of the generic memory advice", () => {
+  const remediation =
+    "Raise the JADX worker heap with REA_JADX_HEAP_MIB or JAVA_TOOL_OPTIONS.";
+  const projected = projectAnalysisError(
+    new AnalysisResourceConstraintError(
+      "inspect_android_package",
+      "memory",
+      "JADX reported JVM heap exhaustion during load_apk",
+      {
+        upstream_operation: "load_apk",
+        observed_max_heap_bytes: 67108864,
+      },
+      {
+        remediationAction: remediation,
+        diagnostics: {
+          upstream_operation: "load_apk",
+          reason: "load failed: Java heap space",
+        },
+      },
+    ),
+  );
+  expect(projected).toMatchObject({
+    code: "resource_constraint",
+    category: "resource_constraint",
+    retryable: false,
+    details: {
+      resource: "memory",
+      reported_limits: {
+        upstream_operation: "load_apk",
+        observed_max_heap_bytes: 67108864,
+      },
+      diagnostics: { reason: "load failed: Java heap space" },
+    },
+  });
+  expect(projected.message).toContain("heap exhaustion");
+  // A declared remediation outranks the resource-kind fallback, so a provider
+  // that measured the constraint can name the setting this host must change.
+  expect(projected.remediation.action).toBe(remediation);
+  expect(projected.remediation.action).not.toContain("sufficient memory");
+  expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(true);
+});
+
 it.each([
   new AnalysisInputError("inspect", { capturedOutput: retainedOutput }),
   new AnalysisOutputError("inspect", "invalid reply", {

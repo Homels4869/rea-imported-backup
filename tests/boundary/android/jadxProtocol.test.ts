@@ -3,6 +3,7 @@ import {
   parseJadxEnvelope,
   parseJadxJson,
   normalizeJadxText,
+  jadxHeapExhausted,
 } from "../../../src/android/JadxProtocol.js";
 import { androidInputSchemas } from "../../../src/domain/android/androidAnalysis.js";
 
@@ -29,6 +30,30 @@ it("validates provider text envelopes and rejects unsupported content rather tha
   expect(() =>
     parseJadxJson("{malformed", "inspect_android_package"),
   ).toThrowError("malformed JSON text");
+});
+
+it("recognizes the heap-shortage reasons without claiming other JVM memory failures", () => {
+  // Both reasons are remedied by the same worker heap setting: one runs out of
+  // room, the other thrashes inside it. A larger heap turns the second into the
+  // first, so they share a classification rather than one being a special case.
+  for (const reason of [
+    "load failed: Java heap space",
+    "load failed: java.lang.OutOfMemoryError: Java heap space",
+    "load failed: GC overhead limit exceeded",
+    "load failed: java.lang.OutOfMemoryError: GC overhead limit exceeded",
+    "load failed: java.lang.OutOfMemoryError: GC Overhead Limit Exceeded",
+  ])
+    expect(jadxHeapExhausted(reason)).toBe(true);
+  // Other JVM memory failures have different causes and different recovery, so
+  // they must keep the generic adapter failure rather than name the heap setting.
+  for (const text of [
+    "load failed: java.lang.OutOfMemoryError: Metaspace",
+    "load failed: java.lang.OutOfMemoryError: Direct buffer memory",
+    "load failed: java.lang.OutOfMemoryError: unable to create new native thread",
+    "load failed: malformed dex",
+    "",
+  ])
+    expect(jadxHeapExhausted(text)).toBe(false);
 });
 
 it("retains UTF-8 source and recognizes only the producer's terminal truncation marker", () => {

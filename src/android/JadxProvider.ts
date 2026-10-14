@@ -10,6 +10,7 @@ import {
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
   AnalysisInputError,
+  AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
@@ -33,6 +34,8 @@ import {
   resolveJadxConfigurationInputs,
   validateJadxConfiguration,
 } from "./JadxConfiguration.js";
+import { jadxHeapExhausted } from "./JadxProtocol.js";
+import { JADX_HEAP_EXHAUSTION_REMEDIATION } from "./JadxRelease.js";
 import type { JadxLauncher } from "./JadxMcpTransport.js";
 
 import { JadxSession } from "./JadxSession.js";
@@ -84,7 +87,42 @@ const executionError = (context: {
     );
   if (session !== undefined && !session.initialized()) {
     const stderr = session.transport.diagnostics();
-    const reason = `Java could not start REA's Android bridge using ${session.transport.options.command}: ${cause instanceof Error ? cause.message : String(cause)}.${stderr.length === 0 ? "" : ` Java diagnostics: ${stderr}`} Select a full JDK including jdk.compiler via JAVA_HOME, or a working java on PATH; verify it with java --list-modules. A JRE cannot compile REA's source bridge. If the JDK works, verify the REA bridge and configured JADX JAR installation.`;
+    const capturedOutput = {
+      stdout: "",
+      stderr,
+      truncated: session.transport.diagnosticsTruncated(),
+    };
+    // The launcher died before the protocol handshake, so its retained stderr is
+    // the only evidence of why. A heap shortage there is answered by a setting,
+    // which is a different reply from one for a launcher that never started.
+    if (jadxHeapExhausted(stderr))
+      return new AnalysisResourceConstraintError(
+        request.operation,
+        "memory",
+        "The JADX worker JVM ran out of heap before REA's Android bridge answered",
+        {
+          // No runtime fact was observed: the bridge never reported the heap it
+          // had, so the limit stays unknown rather than measured.
+          observed_max_heap_bytes: null,
+        },
+        {
+          cause,
+          remediationAction: JADX_HEAP_EXHAUSTION_REMEDIATION,
+          capturedOutput,
+          diagnostics: {
+            reason: cause instanceof Error ? cause.message : String(cause),
+          },
+        },
+      );
+    // A launcher that dies instantly, as one does when the requested heap is
+    // below the JVM's own minimum, can be inspected before its stderr has been
+    // read. Say that no diagnostics arrived instead of pointing at output that
+    // is not there.
+    const diagnostics =
+      stderr.length === 0
+        ? " The launcher produced no diagnostics before it stopped."
+        : ` Java diagnostics: ${stderr}`;
+    const reason = `Java could not start REA's Android bridge using ${session.transport.options.command}: ${cause instanceof Error ? cause.message : String(cause)}.${diagnostics} REA's pre-launch checks confirmed the selected JDK lists jdk.compiler and that the engine archive holds its expected entry names. Those checks do not establish that the launcher runs or that the whole archive is intact, so this reports what the launcher said instead of naming a cause.`;
     return new AnalysisCapabilityUnavailableError(
       "jadx",
       request.operation,
@@ -92,11 +130,7 @@ const executionError = (context: {
       {
         cause,
         userMessage: reason,
-        capturedOutput: {
-          stdout: "",
-          stderr,
-          truncated: session.transport.diagnosticsTruncated(),
-        },
+        capturedOutput,
       },
     );
   }

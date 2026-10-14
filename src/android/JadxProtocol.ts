@@ -126,6 +126,27 @@ export const parseJadxEnvelope = (
   };
 };
 
+/**
+ * HotSpot's two heap-exhaustion reasons, which are the `OutOfMemoryError`
+ * messages this provider's remediation does fix: the heap cannot hold the
+ * working set, and the collector spends nearly all of its time reclaiming
+ * almost none of it. Both are remedied by the same worker heap setting, and a
+ * larger heap turns the second into the first rather than into a different
+ * failure. Read against the reason rather than the whole text: the bridge
+ * composes an upstream failure as "<step> failed: <reason>", and a launcher
+ * that dies before the handshake writes the same `OutOfMemoryError` text to
+ * stderr. Other `OutOfMemoryError` reasons (native thread, metaspace, direct
+ * buffer) are not heap shortages, so they keep the generic adapter failure
+ * instead of claiming the heap setting is the fix. A heap below the JVM's own
+ * minimum never reaches either path: the VM refuses to initialize and prints
+ * its own message.
+ */
+const JADX_HEAP_EXHAUSTION = /java heap space|gc overhead limit exceeded/iu;
+
+/** Whether the JVM reported heap exhaustion, in a bridge failure or a launcher's retained stderr. */
+export const jadxHeapExhausted = (text: string): boolean =>
+  JADX_HEAP_EXHAUSTION.test(text);
+
 /** Decode an upstream JSON text payload without trusting its contents. */
 export const parseJadxJson = (
   text: string,

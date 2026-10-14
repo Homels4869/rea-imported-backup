@@ -266,10 +266,17 @@ closes the Java job and the helper's input pipe; the helper then removes the
 workspace by handle. The real Windows lane checks both effects. If the helper
 also dies or the host loses power before it finishes, private files can remain.
 
-If Java cannot start the bridge, REA reports the selected executable and retained
-startup diagnostics. Select a full JDK through `JAVA_HOME` or `PATH`, and use
-`java --list-modules` to confirm `jdk.compiler` is present. A runnable JRE alone
-cannot compile the bridge. Missing or ambiguous class and method selections are
+If Java cannot start the bridge, REA reports the selected executable and any
+startup diagnostics the launcher produced. A heap shortage there is the resource
+limit described above; any other start failure stays `capability_unavailable`. A
+launcher that stops before writing anything, such as a `-Xmx` below the JVM's own
+minimum, leaves none, and REA reports that it produced no diagnostics rather than
+pointing at output that does not exist. The selected JDK's compiler module and
+the engine archive are checked before that launch: those checks establish the
+JDK's module listing and the archive's expected entry names, so a start failure
+is reported from the launcher's own output rather than attributed to them, and
+it can still have a cause they do not cover. Missing or ambiguous class and
+method selections are
 input failures; discover names with `search_android_classes` and
 `inspect_android_class` before correcting the selected argument.
 
@@ -302,6 +309,24 @@ raw runtime response. The observed allocatable heap can differ from configured
 uses native memory. Independent REA instances have independent queues. Whole
 operations have a **120-second** execution deadline after reaching the queue's
 front; upstream decompilation is limited to **90 seconds**.
+
+JVM heap exhaustion reported as `Java heap space` or `GC overhead limit
+exceeded` fails with `resource_constraint` and `details.resource: "memory"`,
+whether it strikes during a JADX operation (loading a package or decompiling a
+method) or stops the worker before REA's bridge answers.
+`details.reported_limits.observed_max_heap_bytes` carries the heap the failing
+run observed, and is `null` when a heap shortage ended the worker before any
+runtime fact arrived; a failure before the bridge answers also keeps the
+launcher's own output in `details.captured_output`. The failure's remediation
+names `REA_JADX_HEAP_MIB`, which REA passes as an explicit command-line `-Xmx`
+and which therefore overrides `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS`, while
+`_JAVA_OPTIONS` overrides the command line and must be cleared or raised as
+well. That heap is the failing
+run's limit, not the package's requirement. `rea doctor --provider jadx` states
+the requested heap, or that REA asks for none and the heap comes from the
+launching environment, and it never fails the provider; it reads configuration
+without starting the engine, so it reports neither the effective heap nor
+whether one package fits.
 
 Decoded manifest and method text have a **1 MiB** upstream byte budget and report
 truncation. Class-name pages use indexed slices of up to 4,096 names without changing the

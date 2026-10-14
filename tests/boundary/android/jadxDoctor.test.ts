@@ -34,8 +34,47 @@ it("publishes REA_JADX_MCP_JAR as registration environment when the configured J
         code: null,
         classification: "config_drift",
       },
+      {
+        name: "heap",
+        ok: true,
+        code: null,
+        detail: expect.stringContaining("REA_JADX_HEAP_MIB is unset"),
+        remediation: null,
+        classification: "config_drift",
+      },
     ],
   });
+  // An unset REA setting leaves the heap to the launching environment, which
+  // includes the JVM option variables REA passes through unchanged, so the
+  // detail reports them instead of claiming the heap is ergonomics alone.
+  const heap = inspection.checks.find(({ name }) => name === "heap");
+  expect(heap?.detail).toContain("_JAVA_OPTIONS");
+});
+
+it("reports the requested heap without judging whether an APK fits in it", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-heap-report-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeJadxJarInventory(jar);
+
+  // 64 MiB is the value reported in the heap-exhaustion issue: doctor can state
+  // it, but cannot know the package's requirement without loading it, so the
+  // check must stay ok rather than guess an adequate size.
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+    REA_JADX_HEAP_MIB: "64",
+  });
+
+  const heap = inspection.checks.find(({ name }) => name === "heap");
+  expect(heap).toMatchObject({
+    ok: true,
+    code: null,
+    remediation: null,
+    detail: expect.stringContaining("64 MiB"),
+    classification: "config_drift",
+  });
+  expect(inspection.registrationEnvironment["REA_JADX_HEAP_MIB"]).toBe("64");
 });
 
 it("publishes JAVA_HOME alongside the JAR when the configured JAR validates", async () => {

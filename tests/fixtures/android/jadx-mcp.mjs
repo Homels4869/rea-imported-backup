@@ -5,6 +5,23 @@ import { z } from "zod";
 // An actual child MCP server exercising the production stdio/process seam.
 // It is a protocol fixture, not evidence of JADX decompiler support.
 const mode = process.env.REA_FAKE_JADX_MODE ?? "normal";
+// A worker heap too small for REA's own bridge stops the JVM before the
+// protocol handshake, so the retained stderr is the only heap evidence.
+if (mode === "start-heap-exhausted") {
+  process.stderr.write(
+    'Exception in thread "main" java.lang.OutOfMemoryError: Java heap space\n',
+  );
+  process.exit(1);
+}
+// A launcher that stops before the handshake for any other reason keeps the
+// generic start-failure reply, which must not blame the JDK REA already checked.
+if (mode === "start-failed") {
+  process.stderr.write("fixture launcher stopped before the handshake\n");
+  process.exit(1);
+}
+// A launcher that stops before writing anything leaves no diagnostics to read,
+// so the reply must say so rather than point at output that never arrived.
+if (mode === "start-silent") process.exit(1);
 const server = new McpServer({
   name: mode === "empty-server-identity" ? "" : "rea-jadx-bridge",
   version:
@@ -56,16 +73,28 @@ const json = (value) => text(JSON.stringify(value));
 const register = (name, handler) =>
   server.registerTool(name, { inputSchema: z.looseObject({}) }, handler);
 register("rea_jvm_status", () =>
-  json({
-    engine_reported_version: mode === "engine-version" ? "0.7.0" : "0.7.1",
-    max_heap_bytes: 8 * 1024 * 1024 * 1024,
-    available_processors: 4,
-    java_version: "21-fixture",
-    metadata_scope: "parsed_members",
-  }),
+  // Exercises a heap failure raised before any runtime fact was observed, so
+  // the caller sees an unknown limit rather than a measured one.
+  mode === "status-heap-exhausted"
+    ? { ...text("status failed: Java heap space"), isError: true }
+    : json({
+        engine_reported_version: mode === "engine-version" ? "0.7.0" : "0.7.1",
+        max_heap_bytes: 8 * 1024 * 1024 * 1024,
+        available_processors: 4,
+        java_version: "21-fixture",
+        metadata_scope: "parsed_members",
+      }),
 );
 register("load_apk", async ({ path }) => {
   if (mode === "stall") await new Promise(() => {});
+  if (mode === "heap-exhausted")
+    return { ...text("load failed: Java heap space"), isError: true };
+  // The other reason a too-small heap produces, with the same recovery.
+  if (mode === "gc-overhead-exhausted")
+    return {
+      ...text("load failed: GC overhead limit exceeded"),
+      isError: true,
+    };
   return json({
     state: "LOADED",
     apk_path: mode === "wrong-apk" ? "/different.apk" : path,

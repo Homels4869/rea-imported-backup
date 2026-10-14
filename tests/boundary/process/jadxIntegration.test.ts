@@ -4,6 +4,7 @@ import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver
 import { AndroidAnalysisService } from "../../../src/application/android/AndroidAnalysisService.js";
 import { JadxProvider } from "../../../src/android/JadxProvider.js";
 import { androidResultSchemas } from "../../../src/domain/android/androidAnalysis.js";
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { snapshotAndroidEngine } from "../../../src/android/AndroidTargetSnapshot.js";
 import { hashStableFile } from "../../../src/filesystem/StableFileHash.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
@@ -745,6 +746,154 @@ it("reports missing native/abstract method source without claiming an empty impl
   );
   expect(result.body_status).toBe("not_available");
   expect(result.source.text).toContain("no decompiled body");
+  await provider.close();
+  await verifyCleanup(launches);
+});
+
+// Both heap-shortage reasons take the same classification, so the end-to-end
+// proof covers each wording the bridge can compose rather than only the first.
+for (const [fixtureMode, upstreamText] of [
+  ["heap-exhausted", "load failed: Java heap space"],
+  ["gc-overhead-exhausted", "load failed: GC overhead limit exceeded"],
+] as const)
+  it(`classifies ${fixtureMode} as a resource limit that names the heap setting`, async () => {
+    const { service, apk, launches, provider } = await setup(fixtureMode);
+    const outcome = await service.execute("inspect_android_package", {
+      path: apk,
+    });
+    if (outcome.ok) throw new Error("Expected a heap-exhaustion failure");
+    const projected = projectAnalysisError(outcome.error);
+    expect(projected).toMatchObject({
+      code: "resource_constraint",
+      category: "resource_constraint",
+      retryable: false,
+      remediation: {
+        action: expect.stringContaining("REA_JADX_HEAP_MIB"),
+      },
+      details: {
+        operation: "inspect_android_package",
+        resource: "memory",
+        reported_limits: {
+          upstream_operation: "load_apk",
+          observed_max_heap_bytes: 8 * 1024 * 1024 * 1024,
+        },
+        diagnostics: { reason: upstreamText },
+      },
+    });
+    expect(projected.message).toContain("heap exhaustion");
+    // Doctor can state the requested heap but cannot size it, so the advice
+    // names the setting instead of deferring to a report that cannot answer.
+    expect(projected.remediation.action).not.toContain("rea doctor");
+    await provider.close();
+    await verifyCleanup(launches);
+  });
+
+it("reports an unknown heap when the failure precedes the runtime probe", async () => {
+  const { service, apk, launches, provider } = await setup(
+    "status-heap-exhausted",
+  );
+  const outcome = await service.execute("inspect_android_package", {
+    path: apk,
+  });
+  if (outcome.ok) throw new Error("Expected a heap-exhaustion failure");
+  const projected = projectAnalysisError(outcome.error);
+  expect(projected.details?.reported_limits).toEqual({
+    upstream_operation: "rea_jvm_status",
+    // The probe that measures the heap is the call that failed, so the limit
+    // stays unknown rather than being guessed from configuration.
+    observed_max_heap_bytes: null,
+    target_path: apk,
+    target_sha256: (await hashStableFile(apk)).sha256,
+  });
+  expect(projected).toMatchObject({
+    code: "resource_constraint",
+    details: { resource: "memory" },
+  });
+  expect(projected.remediation.action).toContain("REA_JADX_HEAP_MIB");
+  await provider.close();
+  await verifyCleanup(launches);
+});
+
+it("classifies a heap shortage that stops the bridge before the handshake", async () => {
+  const { service, apk, launches, provider } = await setup(
+    "start-heap-exhausted",
+  );
+  const outcome = await service.execute("inspect_android_package", {
+    path: apk,
+  });
+  if (outcome.ok) throw new Error("Expected a heap-exhaustion failure");
+  const projected = projectAnalysisError(outcome.error);
+  expect(projected).toMatchObject({
+    code: "resource_constraint",
+    category: "resource_constraint",
+    retryable: false,
+    remediation: {
+      action: expect.stringContaining("REA_JADX_HEAP_MIB"),
+    },
+    details: {
+      operation: "inspect_android_package",
+      resource: "memory",
+      reported_limits: {
+        // The bridge never answered, so nothing measured this run's heap.
+        observed_max_heap_bytes: null,
+      },
+      captured_output: {
+        stdout: "",
+        stderr: expect.stringContaining("OutOfMemoryError: Java heap space"),
+      },
+    },
+  });
+  expect(projected.message).toContain("heap");
+  // The pre-launch checks establish the module listing and the archive's entry
+  // names, not that either one is what stopped the launcher, so a start failure
+  // reports the launcher's own output instead of naming them as the cause.
+  expect(projected.message).not.toContain("JRE");
+  expect(projected.remediation.action).toContain("REA_JADX_HEAP_MIB");
+  // `_JAVA_OPTIONS` overrides the command-line -Xmx, so advice that named only
+  // the variables the command line wins against could change nothing.
+  expect(projected.remediation.action).toContain("_JAVA_OPTIONS");
+  await provider.close();
+  await verifyCleanup(launches);
+});
+
+it("keeps a start failure that is not a heap shortage free of the removed JDK advice", async () => {
+  const { service, apk, launches, provider } = await setup("start-failed");
+  const outcome = await service.execute("inspect_android_package", {
+    path: apk,
+  });
+  if (outcome.ok) throw new Error("Expected a start failure");
+  const projected = projectAnalysisError(outcome.error);
+  expect(projected).toMatchObject({
+    code: "capability_unavailable",
+    details: {
+      operation: "inspect_android_package",
+      captured_output: {
+        stderr: expect.stringContaining("stopped before the handshake"),
+      },
+    },
+  });
+  expect(projected.message).toContain("stopped before the handshake");
+  expect(projected.message).not.toContain("A JRE cannot compile");
+  await provider.close();
+  await verifyCleanup(launches);
+});
+
+it("reports a silent start failure without pointing at diagnostics that never arrived", async () => {
+  const { service, apk, launches, provider } = await setup("start-silent");
+  const outcome = await service.execute("inspect_android_package", {
+    path: apk,
+  });
+  if (outcome.ok) throw new Error("Expected a start failure");
+  const projected = projectAnalysisError(outcome.error);
+  expect(projected).toMatchObject({
+    code: "capability_unavailable",
+    details: {
+      operation: "inspect_android_package",
+      captured_output: { stdout: "", stderr: "" },
+    },
+  });
+  expect(projected.message).toContain("produced no diagnostics");
+  expect(projected.message).not.toContain("Java diagnostics:");
   await provider.close();
   await verifyCleanup(launches);
 });
